@@ -23,9 +23,10 @@ export const ExerciseSchema = z.object({
   createdAt: z.date(),
 });
 
-export const CreateExerciseSchema = ExerciseSchema.omit({
-  id: true,
-  createdAt: true,
+export const CreateExerciseSchema = z.object({
+  name: z.string().min(1).max(100),
+  muscleGroup: MuscleGroupEnum,
+  equipment: z.string().optional(),
 });
 
 // Template Schemas

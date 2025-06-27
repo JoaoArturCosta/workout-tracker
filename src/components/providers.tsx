@@ -2,7 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SessionProvider } from "next-auth/react";
-import { api } from "@/lib/trpc";
+import { api, trpcClient } from "@/lib/trpc";
 import { useState } from "react";
 
 export function Providers({ children }: { children: React.ReactNode }) {
@@ -20,11 +20,11 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
   return (
     <SessionProvider>
-      <QueryClientProvider client={queryClient}>
-        <api.Provider client={api.getClient()} queryClient={queryClient}>
+      <api.Provider client={trpcClient} queryClient={queryClient}>
+        <QueryClientProvider client={queryClient}>
           {children}
-        </api.Provider>
-      </QueryClientProvider>
+        </QueryClientProvider>
+      </api.Provider>
     </SessionProvider>
   );
 }
