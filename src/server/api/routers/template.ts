@@ -223,7 +223,7 @@ export const templateRouter = createTRPCRouter({
         originalTemplate.template_exercises.length > 0
       ) {
         const newExercises = originalTemplate.template_exercises.map(
-          (exercise: any) => ({
+          (exercise: unknown) => ({
             template_id: newTemplate.id,
             exercise_id: exercise.exercise_id,
             order_index: exercise.order_index,

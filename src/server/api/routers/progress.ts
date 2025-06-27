@@ -105,7 +105,7 @@ export const progressRouter = createTRPCRouter({
 
       // Calculate volume (weight * reps) grouped by session
       const volumeBySession = (data || []).reduce(
-        (acc: Record<string, number>, set: any) => {
+        (acc: Record<string, number>, set: unknown) => {
           const sessionDate =
             set.session_exercises.workout_sessions.start_time.split("T")[0];
           const volume = set.weight * set.reps;
