@@ -1,9 +1,11 @@
 import { z } from "zod";
+import { eq, and, ilike } from "drizzle-orm";
 import {
   createTRPCRouter,
   publicProcedure,
   protectedProcedure,
 } from "@/server/api/trpc";
+import { exercises } from "@/lib/db/schema";
 import {
   CreateExerciseSchema,
   ExerciseFilterSchema,
@@ -15,103 +17,91 @@ export const exerciseRouter = createTRPCRouter({
   getAll: publicProcedure
     .input(ExerciseFilterSchema)
     .query(async ({ input, ctx }) => {
-      let query = ctx.supabase.from("exercises").select("*").order("name");
+      let query = ctx.db.select().from(exercises);
 
-      // Filter by muscle group if provided
+      // Build where conditions
+      const conditions = [];
+
       if (input.muscleGroup) {
-        query = query.eq("muscle_group", input.muscleGroup);
+        conditions.push(eq(exercises.muscleGroup, input.muscleGroup));
       }
 
-      // Filter by search term if provided
       if (input.search) {
-        query = query.ilike("name", `%${input.search}%`);
+        conditions.push(ilike(exercises.name, `%${input.search}%`));
       }
 
-      // Filter by custom status if provided
       if (input.isCustom !== undefined) {
-        query = query.eq("is_custom", input.isCustom);
+        conditions.push(eq(exercises.isCustom, input.isCustom));
       }
 
-      const { data, error } = await query;
-
-      if (error) {
-        throw new Error(`Failed to fetch exercises: ${error.message}`);
+      // Apply where conditions if any
+      if (conditions.length > 0) {
+        query = query.where(and(...conditions));
       }
 
-      return data || [];
+      // Execute query with ordering
+      const result = await query.orderBy(exercises.name);
+      return result;
     }),
 
   // Get user's custom exercises (protected)
   getCustom: protectedProcedure.query(async ({ ctx }) => {
-    const { data, error } = await ctx.supabase
-      .from("exercises")
-      .select("*")
-      .eq("user_id", ctx.session.user.id)
-      .eq("is_custom", true)
-      .order("name");
+    const result = await ctx.db
+      .select()
+      .from(exercises)
+      .where(
+        and(
+          eq(exercises.userId, ctx.session.user.id),
+          eq(exercises.isCustom, true)
+        )
+      )
+      .orderBy(exercises.name);
 
-    if (error) {
-      throw new Error(`Failed to fetch custom exercises: ${error.message}`);
-    }
-
-    return data || [];
+    return result;
   }),
 
   // Get exercise by ID
   getById: publicProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ input, ctx }) => {
-      const { data, error } = await ctx.supabase
-        .from("exercises")
-        .select("*")
-        .eq("id", input.id)
-        .single();
+      const result = await ctx.db
+        .select()
+        .from(exercises)
+        .where(eq(exercises.id, input.id))
+        .limit(1);
 
-      if (error) {
-        throw new Error(`Failed to fetch exercise: ${error.message}`);
-      }
-
-      return data;
+      return result[0] || null;
     }),
 
   // Get exercises by muscle group
   getByMuscleGroup: publicProcedure
     .input(z.object({ muscleGroup: MuscleGroupEnum }))
     .query(async ({ input, ctx }) => {
-      const { data, error } = await ctx.supabase
-        .from("exercises")
-        .select("*")
-        .eq("muscle_group", input.muscleGroup)
-        .order("name");
+      const result = await ctx.db
+        .select()
+        .from(exercises)
+        .where(eq(exercises.muscleGroup, input.muscleGroup))
+        .orderBy(exercises.name);
 
-      if (error) {
-        throw new Error(`Failed to fetch exercises: ${error.message}`);
-      }
-
-      return data || [];
+      return result;
     }),
 
   // Create custom exercise (protected)
   create: protectedProcedure
     .input(CreateExerciseSchema)
     .mutation(async ({ input, ctx }) => {
-      const { data, error } = await ctx.supabase
-        .from("exercises")
-        .insert({
+      const result = await ctx.db
+        .insert(exercises)
+        .values({
           name: input.name,
-          muscle_group: input.muscleGroup,
+          muscleGroup: input.muscleGroup,
           equipment: input.equipment,
-          is_custom: true,
-          user_id: ctx.session.user.id,
+          isCustom: true,
+          userId: ctx.session.user.id,
         })
-        .select()
-        .single();
+        .returning();
 
-      if (error) {
-        throw new Error(`Failed to create exercise: ${error.message}`);
-      }
-
-      return data;
+      return result[0];
     }),
 
   // Update custom exercise (protected)
@@ -124,34 +114,33 @@ export const exerciseRouter = createTRPCRouter({
     )
     .mutation(async ({ input, ctx }) => {
       // First verify the exercise belongs to the user
-      const { data: exercise, error: fetchError } = await ctx.supabase
-        .from("exercises")
-        .select("*")
-        .eq("id", input.id)
-        .eq("user_id", ctx.session.user.id)
-        .eq("is_custom", true)
-        .single();
+      const existingExercise = await ctx.db
+        .select()
+        .from(exercises)
+        .where(
+          and(
+            eq(exercises.id, input.id),
+            eq(exercises.userId, ctx.session.user.id),
+            eq(exercises.isCustom, true)
+          )
+        )
+        .limit(1);
 
-      if (fetchError || !exercise) {
+      if (!existingExercise[0]) {
         throw new Error("Exercise not found or not owned by user");
       }
 
-      const { data, error } = await ctx.supabase
-        .from("exercises")
-        .update({
+      const result = await ctx.db
+        .update(exercises)
+        .set({
           name: input.data.name,
-          muscle_group: input.data.muscleGroup,
+          muscleGroup: input.data.muscleGroup,
           equipment: input.data.equipment,
         })
-        .eq("id", input.id)
-        .select()
-        .single();
+        .where(eq(exercises.id, input.id))
+        .returning();
 
-      if (error) {
-        throw new Error(`Failed to update exercise: ${error.message}`);
-      }
-
-      return data;
+      return result[0];
     }),
 
   // Delete custom exercise (protected)
@@ -159,26 +148,23 @@ export const exerciseRouter = createTRPCRouter({
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ input, ctx }) => {
       // First verify the exercise belongs to the user
-      const { data: exercise, error: fetchError } = await ctx.supabase
-        .from("exercises")
-        .select("*")
-        .eq("id", input.id)
-        .eq("user_id", ctx.session.user.id)
-        .eq("is_custom", true)
-        .single();
+      const existingExercise = await ctx.db
+        .select()
+        .from(exercises)
+        .where(
+          and(
+            eq(exercises.id, input.id),
+            eq(exercises.userId, ctx.session.user.id),
+            eq(exercises.isCustom, true)
+          )
+        )
+        .limit(1);
 
-      if (fetchError || !exercise) {
+      if (!existingExercise[0]) {
         throw new Error("Exercise not found or not owned by user");
       }
 
-      const { error } = await ctx.supabase
-        .from("exercises")
-        .delete()
-        .eq("id", input.id);
-
-      if (error) {
-        throw new Error(`Failed to delete exercise: ${error.message}`);
-      }
+      await ctx.db.delete(exercises).where(eq(exercises.id, input.id));
 
       return { success: true };
     }),
@@ -193,27 +179,23 @@ export const exerciseRouter = createTRPCRouter({
       })
     )
     .query(async ({ input, ctx }) => {
-      let query = ctx.supabase
-        .from("exercises")
-        .select("*")
-        .ilike("name", `%${input.query}%`);
+      const conditions = [ilike(exercises.name, `%${input.query}%`)];
 
       if (input.muscleGroup) {
-        query = query.eq("muscle_group", input.muscleGroup);
+        conditions.push(eq(exercises.muscleGroup, input.muscleGroup));
       }
 
       if (!input.includeCustom) {
-        query = query.eq("is_custom", false);
+        conditions.push(eq(exercises.isCustom, false));
       }
 
-      query = query.order("name").limit(20);
+      const result = await ctx.db
+        .select()
+        .from(exercises)
+        .where(and(...conditions))
+        .orderBy(exercises.name)
+        .limit(20);
 
-      const { data, error } = await query;
-
-      if (error) {
-        throw new Error(`Failed to search exercises: ${error.message}`);
-      }
-
-      return data || [];
+      return result;
     }),
 });

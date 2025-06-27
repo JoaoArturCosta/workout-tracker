@@ -5,7 +5,7 @@ import { ZodError } from "zod";
 
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
-import { supabaseAdmin } from "@/lib/supabase";
+import { db } from "@/lib/db";
 
 type CreateContextOptions = {
   session: Session | null;
@@ -24,7 +24,7 @@ type CreateContextOptions = {
 const createInnerTRPCContext = (opts: CreateContextOptions) => {
   return {
     session: opts.session,
-    supabase: supabaseAdmin,
+    db,
   };
 };
 
