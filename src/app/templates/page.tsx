@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useSession, signIn } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -23,6 +24,7 @@ import {
   Target,
   Clock,
   Calendar,
+  LogIn,
 } from "lucide-react";
 import { api } from "@/lib/trpc";
 import { toast } from "sonner";
@@ -38,11 +40,14 @@ const DAYS = [
 ];
 
 export default function TemplatesPage() {
+  const { data: session, status } = useSession();
   const [selectedDay, setSelectedDay] = useState(1);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<string | null>(null);
 
-  const { data: templates, refetch } = api.template.getAll.useQuery();
+  const { data: templates, refetch } = api.template.getAll.useQuery(undefined, {
+    enabled: !!session?.user,
+  });
 
   const deleteTemplateMutation = api.template.delete.useMutation({
     onSuccess: () => {
@@ -120,6 +125,47 @@ export default function TemplatesPage() {
 
   const selectedDayTemplates = getTemplatesForDay(selectedDay);
 
+  // Show loading state
+  if (status === "loading") {
+    return (
+      <div className="container mx-auto p-6">
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+            <p className="text-muted-foreground">Loading...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Show sign in prompt if not authenticated
+  if (status === "unauthenticated") {
+    return (
+      <div className="container mx-auto p-6">
+        <div className="flex items-center justify-center min-h-[400px]">
+          <Card className="w-full max-w-md">
+            <CardContent className="pt-6">
+              <div className="text-center space-y-4">
+                <LogIn className="h-12 w-12 mx-auto text-muted-foreground" />
+                <div>
+                  <h2 className="text-xl font-semibold">Sign In Required</h2>
+                  <p className="text-muted-foreground mt-2">
+                    You need to sign in to create and manage workout templates.
+                  </p>
+                </div>
+                <Button onClick={() => signIn()} className="w-full">
+                  <LogIn className="h-4 w-4 mr-2" />
+                  Sign In
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="container mx-auto p-6">
       <div className="flex justify-between items-center mb-6">
@@ -141,7 +187,7 @@ export default function TemplatesPage() {
               <DialogTitle>Create New Template</DialogTitle>
             </DialogHeader>
             <CreateTemplateForm
-              dayNumber={selectedDay}
+              selectedDay={selectedDay}
               onSuccess={handleCreateSuccess}
             />
           </DialogContent>

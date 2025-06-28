@@ -90,7 +90,16 @@ export function EditTemplateForm({
   });
 
   const { data: exercises } = api.exercise.getAll.useQuery({
-    muscleGroup: muscleGroupFilter as any,
+    muscleGroup:
+      muscleGroupFilter === ""
+        ? undefined
+        : (muscleGroupFilter as
+            | "chest"
+            | "back"
+            | "shoulders"
+            | "arms"
+            | "legs"
+            | "core"),
     search: exerciseSearch,
   });
 
@@ -147,7 +156,9 @@ export function EditTemplateForm({
       !exerciseSearch ||
       exercise.name.toLowerCase().includes(exerciseSearch.toLowerCase());
     const matchesMuscleGroup =
-      !muscleGroupFilter || exercise.muscleGroup === muscleGroupFilter;
+      !muscleGroupFilter ||
+      muscleGroupFilter === "" ||
+      exercise.muscleGroup === muscleGroupFilter;
     return matchesSearch && matchesMuscleGroup;
   });
 

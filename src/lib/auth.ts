@@ -1,12 +1,16 @@
 import { NextAuthOptions } from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
-import { SupabaseAdapter } from "@auth/supabase-adapter";
+import { DrizzleAdapter } from "@auth/drizzle-adapter";
+import { db } from "@/lib/db";
+import { users, accounts, sessions, verificationTokens } from "@/lib/db/schema";
 import { env } from "@/env.mjs";
 
 export const authOptions: NextAuthOptions = {
-  adapter: SupabaseAdapter({
-    url: env.SUPABASE_URL,
-    secret: env.SUPABASE_SERVICE_ROLE_KEY,
+  adapter: DrizzleAdapter(db, {
+    usersTable: users,
+    accountsTable: accounts,
+    sessionsTable: sessions,
+    verificationTokensTable: verificationTokens,
   }),
   providers: [
     GoogleProvider({
@@ -14,10 +18,11 @@ export const authOptions: NextAuthOptions = {
       clientSecret: env.GOOGLE_CLIENT_SECRET,
     }),
   ],
-  pages: {
-    signIn: "/auth/signin",
-    error: "/auth/error",
-  },
+  // Use NextAuth's default pages
+  // pages: {
+  //   signIn: "/auth/signin",
+  //   error: "/auth/error",
+  // },
   session: {
     strategy: "jwt",
   },

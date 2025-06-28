@@ -87,7 +87,16 @@ export function CreateTemplateForm({
   });
 
   const { data: exercises } = api.exercise.getAll.useQuery({
-    muscleGroup: muscleGroupFilter as any,
+    muscleGroup:
+      muscleGroupFilter === ""
+        ? undefined
+        : (muscleGroupFilter as
+            | "chest"
+            | "back"
+            | "shoulders"
+            | "arms"
+            | "legs"
+            | "core"),
     search: exerciseSearch,
   });
 
@@ -127,7 +136,9 @@ export function CreateTemplateForm({
       !exerciseSearch ||
       exercise.name.toLowerCase().includes(exerciseSearch.toLowerCase());
     const matchesMuscleGroup =
-      !muscleGroupFilter || exercise.muscleGroup === muscleGroupFilter;
+      !muscleGroupFilter ||
+      muscleGroupFilter === "" ||
+      exercise.muscleGroup === muscleGroupFilter;
     return matchesSearch && matchesMuscleGroup;
   });
 
@@ -242,7 +253,7 @@ export function CreateTemplateForm({
                               <Badge
                                 variant="secondary"
                                 className={getMuscleGroupColor(
-                                  exercise.muscle_group
+                                  exercise.muscleGroup
                                 )}
                               >
                                 {exercise.muscleGroup}
@@ -296,7 +307,7 @@ export function CreateTemplateForm({
                           <Badge
                             variant="secondary"
                             className={getMuscleGroupColor(
-                              exercise.muscle_group
+                              exercise.muscleGroup
                             )}
                           >
                             {exercise.muscleGroup}

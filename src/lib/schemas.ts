@@ -136,7 +136,7 @@ export const ProgressCalculationSchema = z.object({
 
 // Form Validation Schemas
 export const ExerciseFilterSchema = z.object({
-  muscleGroup: MuscleGroupEnum.optional(),
+  muscleGroup: MuscleGroupEnum.optional().or(z.literal("")),
   search: z.string().optional(),
   isCustom: z.boolean().optional(),
 });

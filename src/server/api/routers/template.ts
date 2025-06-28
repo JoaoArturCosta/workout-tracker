@@ -1,81 +1,171 @@
 import { z } from "zod";
+import { eq, and } from "drizzle-orm";
 import { createTRPCRouter, protectedProcedure } from "@/server/api/trpc";
 import { CreateWorkoutTemplateSchema } from "@/lib/schemas";
+import {
+  workoutTemplates,
+  templateExercises,
+  exercises,
+} from "@/lib/db/schema";
 
 export const templateRouter = createTRPCRouter({
   // Get all user templates
   getAll: protectedProcedure.query(async ({ ctx }) => {
-    const { data, error } = await ctx.supabase
-      .from("workout_templates")
-      .select(
-        `
-        *,
-        template_exercises (
-          *,
-          exercises (*)
-        )
-      `
-      )
-      .eq("user_id", ctx.session.user.id)
-      .order("day_number");
+    const templates = await ctx.db
+      .select({
+        id: workoutTemplates.id,
+        name: workoutTemplates.name,
+        dayNumber: workoutTemplates.dayNumber,
+        userId: workoutTemplates.userId,
+        createdAt: workoutTemplates.createdAt,
+        updatedAt: workoutTemplates.updatedAt,
+      })
+      .from(workoutTemplates)
+      .where(eq(workoutTemplates.userId, ctx.session.user.id))
+      .orderBy(workoutTemplates.dayNumber);
 
-    if (error) {
-      throw new Error(`Failed to fetch templates: ${error.message}`);
-    }
+    // Get template exercises for each template
+    const templatesWithExercises = await Promise.all(
+      templates.map(async (template) => {
+        const templateExercisesList = await ctx.db
+          .select({
+            id: templateExercises.id,
+            templateId: templateExercises.templateId,
+            exerciseId: templateExercises.exerciseId,
+            orderIndex: templateExercises.orderIndex,
+            sets: templateExercises.sets,
+            repsMin: templateExercises.repsMin,
+            repsMax: templateExercises.repsMax,
+            rpeTarget: templateExercises.rpeTarget,
+            exercise: {
+              id: exercises.id,
+              name: exercises.name,
+              muscleGroup: exercises.muscleGroup,
+              equipment: exercises.equipment,
+              isCustom: exercises.isCustom,
+              userId: exercises.userId,
+              createdAt: exercises.createdAt,
+            },
+          })
+          .from(templateExercises)
+          .leftJoin(exercises, eq(templateExercises.exerciseId, exercises.id))
+          .where(eq(templateExercises.templateId, template.id))
+          .orderBy(templateExercises.orderIndex);
 
-    return data || [];
+        return {
+          ...template,
+          template_exercises: templateExercisesList,
+        };
+      })
+    );
+
+    return templatesWithExercises;
   }),
 
   // Get template by day number
   getByDay: protectedProcedure
     .input(z.object({ dayNumber: z.number().min(1).max(7) }))
     .query(async ({ input, ctx }) => {
-      const { data, error } = await ctx.supabase
-        .from("workout_templates")
-        .select(
-          `
-          *,
-          template_exercises (
-            *,
-            exercises (*)
+      const template = await ctx.db
+        .select()
+        .from(workoutTemplates)
+        .where(
+          and(
+            eq(workoutTemplates.userId, ctx.session.user.id),
+            eq(workoutTemplates.dayNumber, input.dayNumber)
           )
-        `
         )
-        .eq("user_id", ctx.session.user.id)
-        .eq("day_number", input.dayNumber)
-        .single();
+        .limit(1);
 
-      if (error && error.code !== "PGRST116") {
-        throw new Error(`Failed to fetch template: ${error.message}`);
+      if (!template[0]) {
+        return null;
       }
 
-      return data;
+      // Get template exercises
+      const templateExercisesList = await ctx.db
+        .select({
+          id: templateExercises.id,
+          templateId: templateExercises.templateId,
+          exerciseId: templateExercises.exerciseId,
+          orderIndex: templateExercises.orderIndex,
+          sets: templateExercises.sets,
+          repsMin: templateExercises.repsMin,
+          repsMax: templateExercises.repsMax,
+          rpeTarget: templateExercises.rpeTarget,
+          exercise: {
+            id: exercises.id,
+            name: exercises.name,
+            muscleGroup: exercises.muscleGroup,
+            equipment: exercises.equipment,
+            isCustom: exercises.isCustom,
+            userId: exercises.userId,
+            createdAt: exercises.createdAt,
+          },
+        })
+        .from(templateExercises)
+        .leftJoin(exercises, eq(templateExercises.exerciseId, exercises.id))
+        .where(eq(templateExercises.templateId, template[0].id))
+        .orderBy(templateExercises.orderIndex);
+
+      return {
+        ...template[0],
+        template_exercises: templateExercisesList,
+      };
     }),
 
   // Get template by ID
   getById: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ input, ctx }) => {
-      const { data, error } = await ctx.supabase
-        .from("workout_templates")
-        .select(
-          `
-          *,
-          template_exercises (
-            *,
-            exercises (*)
+      const template = await ctx.db
+        .select()
+        .from(workoutTemplates)
+        .where(
+          and(
+            eq(workoutTemplates.id, input.id),
+            eq(workoutTemplates.userId, ctx.session.user.id)
           )
-        `
         )
-        .eq("id", input.id)
-        .eq("user_id", ctx.session.user.id)
-        .single();
+        .limit(1);
 
-      if (error) {
-        throw new Error(`Failed to fetch template: ${error.message}`);
+      if (!template[0]) {
+        throw new Error("Template not found");
       }
 
-      return data;
+      // Get template exercises
+      const templateExercisesList = await ctx.db
+        .select({
+          id: templateExercises.id,
+          template_id: templateExercises.templateId,
+          exercise_id: templateExercises.exerciseId,
+          order_index: templateExercises.orderIndex,
+          sets: templateExercises.sets,
+          reps_min: templateExercises.repsMin,
+          reps_max: templateExercises.repsMax,
+          rpe_target: templateExercises.rpeTarget,
+          exercises: {
+            id: exercises.id,
+            name: exercises.name,
+            muscle_group: exercises.muscleGroup,
+            equipment: exercises.equipment,
+            is_custom: exercises.isCustom,
+            user_id: exercises.userId,
+            created_at: exercises.createdAt,
+          },
+        })
+        .from(templateExercises)
+        .leftJoin(exercises, eq(templateExercises.exerciseId, exercises.id))
+        .where(eq(templateExercises.templateId, template[0].id))
+        .orderBy(templateExercises.orderIndex);
+
+      return {
+        ...template[0],
+        day_number: template[0].dayNumber,
+        user_id: template[0].userId,
+        created_at: template[0].createdAt,
+        updated_at: template[0].updatedAt,
+        template_exercises: templateExercisesList,
+      };
     }),
 
   // Create template
@@ -83,46 +173,42 @@ export const templateRouter = createTRPCRouter({
     .input(CreateWorkoutTemplateSchema)
     .mutation(async ({ input, ctx }) => {
       // First create the template
-      const { data: template, error: templateError } = await ctx.supabase
-        .from("workout_templates")
-        .insert({
-          user_id: ctx.session.user.id,
+      const [template] = await ctx.db
+        .insert(workoutTemplates)
+        .values({
+          userId: ctx.session.user.id,
           name: input.name,
-          day_number: input.dayNumber,
+          dayNumber: input.dayNumber,
         })
-        .select()
-        .single();
+        .returning();
 
-      if (templateError) {
-        throw new Error(`Failed to create template: ${templateError.message}`);
+      if (!template) {
+        throw new Error("Failed to create template");
       }
 
       // Then create the exercises if provided
       if (input.exercises && input.exercises.length > 0) {
-        const templateExercises = input.exercises.map((exercise, index) => ({
-          template_id: template.id,
-          exercise_id: exercise.exerciseId,
-          order_index: exercise.orderIndex ?? index,
-          sets: exercise.sets,
-          reps_min: exercise.repsMin,
-          reps_max: exercise.repsMax,
-          rpe_target: exercise.rpeTarget,
-        }));
+        const templateExerciseValues = input.exercises.map(
+          (exercise, index) => ({
+            templateId: template.id,
+            exerciseId: exercise.exerciseId,
+            orderIndex: exercise.orderIndex ?? index,
+            sets: exercise.sets,
+            repsMin: exercise.repsMin,
+            repsMax: exercise.repsMax,
+            rpeTarget: exercise.rpeTarget,
+          })
+        );
 
-        const { error: exercisesError } = await ctx.supabase
-          .from("template_exercises")
-          .insert(templateExercises);
-
-        if (exercisesError) {
+        try {
+          await ctx.db.insert(templateExercises).values(templateExerciseValues);
+        } catch (error) {
           // Clean up the template if exercise creation fails
-          await ctx.supabase
-            .from("workout_templates")
-            .delete()
-            .eq("id", template.id);
+          await ctx.db
+            .delete(workoutTemplates)
+            .where(eq(workoutTemplates.id, template.id));
 
-          throw new Error(
-            `Failed to create template exercises: ${exercisesError.message}`
-          );
+          throw new Error(`Failed to create template exercises: ${error}`);
         }
       }
 
@@ -138,36 +224,44 @@ export const templateRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ input, ctx }) => {
-      const { data, error } = await ctx.supabase
-        .from("workout_templates")
-        .update({
+      const [updated] = await ctx.db
+        .update(workoutTemplates)
+        .set({
           name: input.data.name,
-          day_number: input.data.dayNumber,
+          dayNumber: input.data.dayNumber,
+          updatedAt: new Date(),
         })
-        .eq("id", input.id)
-        .eq("user_id", ctx.session.user.id)
-        .select()
-        .single();
+        .where(
+          and(
+            eq(workoutTemplates.id, input.id),
+            eq(workoutTemplates.userId, ctx.session.user.id)
+          )
+        )
+        .returning();
 
-      if (error) {
-        throw new Error(`Failed to update template: ${error.message}`);
+      if (!updated) {
+        throw new Error("Template not found or not owned by user");
       }
 
-      return data;
+      return updated;
     }),
 
   // Delete template
   delete: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ input, ctx }) => {
-      const { error } = await ctx.supabase
-        .from("workout_templates")
-        .delete()
-        .eq("id", input.id)
-        .eq("user_id", ctx.session.user.id);
+      const result = await ctx.db
+        .delete(workoutTemplates)
+        .where(
+          and(
+            eq(workoutTemplates.id, input.id),
+            eq(workoutTemplates.userId, ctx.session.user.id)
+          )
+        )
+        .returning();
 
-      if (error) {
-        throw new Error(`Failed to delete template: ${error.message}`);
+      if (!result.length) {
+        throw new Error("Template not found or not owned by user");
       }
 
       return { success: true };
@@ -183,72 +277,55 @@ export const templateRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ input, ctx }) => {
-      // Get the original template with exercises
-      const { data: originalTemplate, error: fetchError } = await ctx.supabase
-        .from("workout_templates")
-        .select(
-          `
-          *,
-          template_exercises (*)
-        `
+      // Get the original template
+      const originalTemplate = await ctx.db
+        .select()
+        .from(workoutTemplates)
+        .where(
+          and(
+            eq(workoutTemplates.id, input.id),
+            eq(workoutTemplates.userId, ctx.session.user.id)
+          )
         )
-        .eq("id", input.id)
-        .eq("user_id", ctx.session.user.id)
-        .single();
+        .limit(1);
 
-      if (fetchError || !originalTemplate) {
+      if (!originalTemplate[0]) {
         throw new Error("Template not found");
       }
 
-      // Create the new template
-      const { data: newTemplate, error: templateError } = await ctx.supabase
-        .from("workout_templates")
-        .insert({
-          user_id: ctx.session.user.id,
-          name: input.newName,
-          day_number: input.newDayNumber,
-        })
+      // Get the original template exercises
+      const originalExercises = await ctx.db
         .select()
-        .single();
+        .from(templateExercises)
+        .where(eq(templateExercises.templateId, input.id));
 
-      if (templateError) {
-        throw new Error(
-          `Failed to duplicate template: ${templateError.message}`
-        );
+      // Create the new template
+      const [newTemplate] = await ctx.db
+        .insert(workoutTemplates)
+        .values({
+          userId: ctx.session.user.id,
+          name: input.newName,
+          dayNumber: input.newDayNumber,
+        })
+        .returning();
+
+      if (!newTemplate) {
+        throw new Error("Failed to duplicate template");
       }
 
-      // Copy the exercises if any exist
-      if (
-        originalTemplate.template_exercises &&
-        originalTemplate.template_exercises.length > 0
-      ) {
-        const newExercises = originalTemplate.template_exercises.map(
-          (exercise: unknown) => ({
-            template_id: newTemplate.id,
-            exercise_id: exercise.exercise_id,
-            order_index: exercise.order_index,
-            sets: exercise.sets,
-            reps_min: exercise.reps_min,
-            reps_max: exercise.reps_max,
-            rpe_target: exercise.rpe_target,
-          })
-        );
+      // Create the new template exercises
+      if (originalExercises.length > 0) {
+        const newTemplateExercises = originalExercises.map((exercise) => ({
+          templateId: newTemplate.id,
+          exerciseId: exercise.exerciseId,
+          orderIndex: exercise.orderIndex,
+          sets: exercise.sets,
+          repsMin: exercise.repsMin,
+          repsMax: exercise.repsMax,
+          rpeTarget: exercise.rpeTarget,
+        }));
 
-        const { error: exercisesError } = await ctx.supabase
-          .from("template_exercises")
-          .insert(newExercises);
-
-        if (exercisesError) {
-          // Clean up if exercise creation fails
-          await ctx.supabase
-            .from("workout_templates")
-            .delete()
-            .eq("id", newTemplate.id);
-
-          throw new Error(
-            `Failed to duplicate template exercises: ${exercisesError.message}`
-          );
-        }
+        await ctx.db.insert(templateExercises).values(newTemplateExercises);
       }
 
       return newTemplate;
