@@ -13,22 +13,13 @@ import { MoreVertical, Edit, Trash2, User, Database } from "lucide-react";
 import { api } from "@/lib/trpc";
 import { useState } from "react";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { EditExerciseForm } from "./edit-exercise-form";
+import { toast } from "sonner";
 import type { Exercise } from "@/lib/db/schema";
 
 interface ExerciseCardProps {
@@ -58,19 +49,27 @@ export function ExerciseCard({
   exercise,
   showActions = false,
 }: ExerciseCardProps) {
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const utils = api.useUtils();
 
   const deleteMutation = api.exercise.delete.useMutation({
     onSuccess: () => {
       utils.exercise.getCustom.invalidate();
-      setIsDeleteDialogOpen(false);
+      toast.success("Exercise deleted successfully");
+    },
+    onError: (error) => {
+      toast.error(`Failed to delete exercise: ${error.message}`);
     },
   });
 
   const handleDelete = () => {
-    deleteMutation.mutate({ id: exercise.id });
+    if (
+      window.confirm(
+        `Are you sure you want to delete "${exercise.name}"? This action cannot be undone.`
+      )
+    ) {
+      deleteMutation.mutate({ id: exercise.id });
+    }
   };
 
   const handleEditSuccess = () => {
@@ -99,11 +98,12 @@ export function ExerciseCard({
                     Edit
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    onClick={() => setIsDeleteDialogOpen(true)}
+                    onClick={handleDelete}
                     className="text-destructive"
+                    disabled={deleteMutation.isPending}
                   >
                     <Trash2 className="h-4 w-4 mr-2" />
-                    Delete
+                    {deleteMutation.isPending ? "Deleting..." : "Delete"}
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -143,32 +143,6 @@ export function ExerciseCard({
           </div>
         </CardContent>
       </Card>
-
-      {/* Delete Confirmation Dialog */}
-      <AlertDialog
-        open={isDeleteDialogOpen}
-        onOpenChange={setIsDeleteDialogOpen}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Exercise</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete "{exercise.name}"? This action
-              cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDelete}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={deleteMutation.isPending}
-            >
-              {deleteMutation.isPending ? "Deleting..." : "Delete"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
       {/* Edit Dialog */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
