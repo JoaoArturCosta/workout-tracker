@@ -18,7 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { EditExerciseForm } from "./edit-exercise-form";
+import { EditExerciseForm } from "@/components/exercises/edit-exercise-form";
 import { toast } from "sonner";
 import type { Exercise } from "@/lib/schemas";
 
