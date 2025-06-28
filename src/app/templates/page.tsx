@@ -1,14 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Plus, Edit, Trash2 } from "lucide-react";
-import { api } from "@/lib/trpc";
-import { CreateTemplateForm } from "@/components/templates/create-template-form";
-import { EditTemplateForm } from "@/components/templates/edit-template-form";
-import { TemplateCard } from "@/components/templates/template-card";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -16,17 +12,20 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { CreateTemplateForm } from "@/components/templates/create-template-form";
+import { EditTemplateForm } from "@/components/templates/edit-template-form";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
+  Plus,
+  Edit,
+  Trash2,
+  Copy,
+  Dumbbell,
+  Target,
+  Clock,
+  Calendar,
+} from "lucide-react";
+import { api } from "@/lib/trpc";
+import { toast } from "sonner";
 
 const DAYS = [
   { number: 1, name: "Day 1" },
@@ -39,49 +38,87 @@ const DAYS = [
 ];
 
 export default function TemplatesPage() {
-  const [activeDay, setActiveDay] = useState("1");
-  const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  const [editDialogOpen, setEditDialogOpen] = useState(false);
-  const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null);
+  const [selectedDay, setSelectedDay] = useState(1);
+  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
+  const [editingTemplate, setEditingTemplate] = useState<string | null>(null);
 
   const { data: templates, refetch } = api.template.getAll.useQuery();
+
   const deleteTemplateMutation = api.template.delete.useMutation({
     onSuccess: () => {
+      toast.success("Template deleted successfully");
       refetch();
     },
+    onError: (error) => {
+      toast.error("Failed to delete template: " + error.message);
+    },
   });
+
   const duplicateTemplateMutation = api.template.duplicate.useMutation({
     onSuccess: () => {
+      toast.success("Template duplicated successfully");
       refetch();
+    },
+    onError: (error) => {
+      toast.error("Failed to duplicate template: " + error.message);
     },
   });
 
-  const handleDelete = async (templateId: string) => {
-    try {
-      await deleteTemplateMutation.mutateAsync({ id: templateId });
-    } catch (error) {
-      console.error("Failed to delete template:", error);
-    }
+  const handleCreateSuccess = () => {
+    setIsCreateDialogOpen(false);
+    refetch();
   };
 
-  const handleDuplicate = async (templateId: string, targetDay: number) => {
-    try {
-      const template = templates?.find((t: any) => t.id === templateId);
-      if (!template) return;
-
-      await duplicateTemplateMutation.mutateAsync({
-        id: templateId,
-        newDayNumber: targetDay,
-        newName: `${template.name} (Copy)`,
-      });
-    } catch (error) {
-      console.error("Failed to duplicate template:", error);
-    }
+  const handleEditSuccess = () => {
+    setEditingTemplate(null);
+    refetch();
   };
 
-  const getTemplateForDay = (dayNumber: number) => {
-    return templates?.find((t: any) => t.day_number === dayNumber);
+  const handleDeleteTemplate = (templateId: string, templateName: string) => {
+    toast(`Delete "${templateName}"?`, {
+      description: "This action cannot be undone.",
+      action: {
+        label: "Delete",
+        onClick: () => deleteTemplateMutation.mutate({ id: templateId }),
+      },
+      cancel: {
+        label: "Cancel",
+        onClick: () => {},
+      },
+    });
   };
+
+  const handleDuplicateTemplate = (
+    templateId: string,
+    templateName: string
+  ) => {
+    const targetDay = selectedDay === 7 ? 1 : selectedDay + 1;
+    duplicateTemplateMutation.mutate({
+      id: templateId,
+      newDayNumber: targetDay,
+      newName: `${templateName} (Copy)`,
+    });
+  };
+
+  const getTemplatesForDay = (dayNumber: number) => {
+    return (
+      templates?.filter((template) => template.dayNumber === dayNumber) || []
+    );
+  };
+
+  const getMuscleGroupColor = (muscleGroup: string) => {
+    const colors: Record<string, string> = {
+      chest: "bg-red-100 text-red-800",
+      back: "bg-blue-100 text-blue-800",
+      shoulders: "bg-yellow-100 text-yellow-800",
+      arms: "bg-purple-100 text-purple-800",
+      legs: "bg-green-100 text-green-800",
+      core: "bg-orange-100 text-orange-800",
+    };
+    return colors[muscleGroup] || "bg-gray-100 text-gray-800";
+  };
+
+  const selectedDayTemplates = getTemplatesForDay(selectedDay);
 
   return (
     <div className="container mx-auto p-6">
@@ -89,10 +126,10 @@ export default function TemplatesPage() {
         <div>
           <h1 className="text-3xl font-bold">Workout Templates</h1>
           <p className="text-muted-foreground">
-            Plan your workouts for each day of the week
+            Create and manage your weekly workout plans
           </p>
         </div>
-        <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+        <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
           <DialogTrigger asChild>
             <Button>
               <Plus className="h-4 w-4 mr-2" />
@@ -101,20 +138,21 @@ export default function TemplatesPage() {
           </DialogTrigger>
           <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>Create Workout Template</DialogTitle>
+              <DialogTitle>Create New Template</DialogTitle>
             </DialogHeader>
             <CreateTemplateForm
-              onSuccess={() => {
-                setCreateDialogOpen(false);
-                refetch();
-              }}
-              selectedDay={parseInt(activeDay)}
+              dayNumber={selectedDay}
+              onSuccess={handleCreateSuccess}
             />
           </DialogContent>
         </Dialog>
       </div>
 
-      <Tabs value={activeDay} onValueChange={setActiveDay} className="w-full">
+      {/* Day Tabs */}
+      <Tabs
+        value={selectedDay.toString()}
+        onValueChange={(value) => setSelectedDay(parseInt(value))}
+      >
         <TabsList className="grid w-full grid-cols-7">
           {DAYS.map((day) => (
             <TabsTrigger key={day.number} value={day.number.toString()}>
@@ -124,114 +162,180 @@ export default function TemplatesPage() {
         </TabsList>
 
         {DAYS.map((day) => (
-          <TabsContent key={day.number} value={day.number.toString()}>
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex justify-between items-center">
-                  <span>{day.name} Workout</span>
-                  <div className="flex gap-2">
-                    {getTemplateForDay(day.number) && (
-                      <>
-                        <Dialog
-                          open={editDialogOpen}
-                          onOpenChange={setEditDialogOpen}
-                        >
-                          <DialogTrigger asChild>
+          <TabsContent
+            key={day.number}
+            value={day.number.toString()}
+            className="mt-6"
+          >
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-semibold">{day.name} Templates</h2>
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Calendar className="h-4 w-4" />
+                  {getTemplatesForDay(day.number).length} template(s)
+                </div>
+              </div>
+
+              {getTemplatesForDay(day.number).length > 0 ? (
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  {getTemplatesForDay(day.number).map((template) => (
+                    <Card
+                      key={template.id}
+                      className="hover:shadow-md transition-shadow"
+                    >
+                      <CardHeader className="pb-3">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <CardTitle className="text-lg">
+                              {template.name}
+                            </CardTitle>
+                            <div className="flex items-center gap-2 mt-1">
+                              <Badge variant="outline">{day.name}</Badge>
+                              <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                                <Dumbbell className="h-3 w-3" />
+                                {template.template_exercises?.length || 0}{" "}
+                                exercises
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex gap-1">
                             <Button
-                              variant="outline"
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setEditingTemplate(template.id)}
+                            >
+                              <Edit className="h-3 w-3" />
+                            </Button>
+                            <Button
+                              variant="ghost"
                               size="sm"
                               onClick={() =>
-                                setSelectedTemplate(
-                                  getTemplateForDay(day.number)?.id || null
+                                handleDuplicateTemplate(
+                                  template.id,
+                                  template.name
                                 )
                               }
+                              disabled={duplicateTemplateMutation.isPending}
                             >
-                              <Edit className="h-4 w-4" />
+                              <Copy className="h-3 w-3" />
                             </Button>
-                          </DialogTrigger>
-                          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-                            <DialogHeader>
-                              <DialogTitle>Edit Workout Template</DialogTitle>
-                            </DialogHeader>
-                            {selectedTemplate && (
-                              <EditTemplateForm
-                                templateId={selectedTemplate}
-                                onSuccess={() => {
-                                  setEditDialogOpen(false);
-                                  setSelectedTemplate(null);
-                                  refetch();
-                                }}
-                              />
-                            )}
-                          </DialogContent>
-                        </Dialog>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() =>
+                                handleDeleteTemplate(template.id, template.name)
+                              }
+                              disabled={deleteTemplateMutation.isPending}
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="pt-0">
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between text-sm text-muted-foreground">
+                            <div className="flex items-center gap-1">
+                              <Target className="h-3 w-3" />
+                              {template.template_exercises?.reduce(
+                                (sum, te) => sum + te.sets,
+                                0
+                              ) || 0}{" "}
+                              sets
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <Clock className="h-3 w-3" />~
+                              {(template.template_exercises?.length || 0) * 3 +
+                                (template.template_exercises?.reduce(
+                                  (sum, te) => sum + te.sets,
+                                  0
+                                ) || 0) *
+                                  2}{" "}
+                              min
+                            </div>
+                          </div>
 
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button variant="outline" size="sm">
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>
-                                Delete Template
-                              </AlertDialogTitle>
-                              <AlertDialogDescription>
-                                Are you sure you want to delete this template?
-                                This action cannot be undone.
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>Cancel</AlertDialogCancel>
-                              <AlertDialogAction
-                                onClick={() =>
-                                  getTemplateForDay(day.number)?.id &&
-                                  handleDelete(
-                                    getTemplateForDay(day.number)!.id
-                                  )
-                                }
-                              >
-                                Delete
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                      </>
-                    )}
-                  </div>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {getTemplateForDay(day.number) ? (
-                  <TemplateCard
-                    template={getTemplateForDay(day.number)!}
-                    onDuplicate={(targetDay: number) =>
-                      handleDuplicate(
-                        getTemplateForDay(day.number)!.id,
-                        targetDay
-                      )
-                    }
-                  />
-                ) : (
-                  <div className="text-center py-8">
+                          <div className="space-y-2">
+                            {template.template_exercises
+                              ?.slice(0, 3)
+                              .map((te, index) => (
+                                <div
+                                  key={index}
+                                  className="flex items-center justify-between text-xs"
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <Badge
+                                      variant="secondary"
+                                      className={`text-xs ${getMuscleGroupColor(
+                                        te.exercises?.muscleGroup || ""
+                                      )}`}
+                                    >
+                                      {te.exercises?.muscleGroup}
+                                    </Badge>
+                                    <span className="font-medium">
+                                      {te.exercises?.name}
+                                    </span>
+                                  </div>
+                                  <span className="text-muted-foreground">
+                                    {te.sets} × {te.repsMin}-{te.repsMax}
+                                  </span>
+                                </div>
+                              ))}
+                            {(template.template_exercises?.length || 0) > 3 && (
+                              <div className="text-xs text-muted-foreground text-center">
+                                +
+                                {(template.template_exercises?.length || 0) - 3}{" "}
+                                more exercises
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              ) : (
+                <Card className="border-dashed">
+                  <CardContent className="p-8 text-center">
+                    <Dumbbell className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                    <h3 className="font-semibold mb-2">
+                      No Templates for {day.name}
+                    </h3>
                     <p className="text-muted-foreground mb-4">
-                      No template created for {day.name}
+                      Create your first template for this day to get started.
                     </p>
                     <Button
-                      onClick={() => setCreateDialogOpen(true)}
                       variant="outline"
+                      onClick={() => setIsCreateDialogOpen(true)}
                     >
                       <Plus className="h-4 w-4 mr-2" />
                       Create Template
                     </Button>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
           </TabsContent>
         ))}
       </Tabs>
+
+      {/* Edit Template Dialog */}
+      {editingTemplate && (
+        <Dialog
+          open={!!editingTemplate}
+          onOpenChange={() => setEditingTemplate(null)}
+        >
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Edit Template</DialogTitle>
+            </DialogHeader>
+            <EditTemplateForm
+              templateId={editingTemplate}
+              onSuccess={handleEditSuccess}
+            />
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }
