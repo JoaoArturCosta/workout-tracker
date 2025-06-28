@@ -70,6 +70,7 @@ export function EditTemplateForm({
   const [exerciseSearch, setExerciseSearch] = useState("");
   const [muscleGroupFilter, setMuscleGroupFilter] = useState<string>("all");
 
+  const utils = api.useUtils();
   const { data: template } = api.template.getById.useQuery({ id: templateId });
 
   const {
@@ -114,6 +115,8 @@ export function EditTemplateForm({
 
   const updateTemplateMutation = api.template.update.useMutation({
     onSuccess: () => {
+      utils.template.getAll.invalidate();
+      utils.template.getById.invalidate({ id: templateId });
       toast.success("Template updated successfully!");
       onSuccess();
     },

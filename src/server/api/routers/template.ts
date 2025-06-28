@@ -224,6 +224,7 @@ export const templateRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ input, ctx }) => {
+      // Update the template basic info
       const [updated] = await ctx.db
         .update(workoutTemplates)
         .set({
@@ -241,6 +242,31 @@ export const templateRouter = createTRPCRouter({
 
       if (!updated) {
         throw new Error("Template not found or not owned by user");
+      }
+
+      // Update exercises if provided
+      if (input.data.exercises !== undefined) {
+        // First, delete all existing template exercises
+        await ctx.db
+          .delete(templateExercises)
+          .where(eq(templateExercises.templateId, input.id));
+
+        // Then create the new exercises if any
+        if (input.data.exercises.length > 0) {
+          const templateExerciseValues = input.data.exercises.map(
+            (exercise, index) => ({
+              templateId: input.id,
+              exerciseId: exercise.exerciseId,
+              orderIndex: exercise.orderIndex ?? index,
+              sets: exercise.sets,
+              repsMin: exercise.repsMin,
+              repsMax: exercise.repsMax,
+              rpeTarget: exercise.rpeTarget,
+            })
+          );
+
+          await ctx.db.insert(templateExercises).values(templateExerciseValues);
+        }
       }
 
       return updated;
