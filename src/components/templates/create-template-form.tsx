@@ -19,6 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { Plus, Trash2, GripVertical, Dumbbell, Target } from "lucide-react";
 import { api } from "@/lib/trpc";
 import { CreateWorkoutTemplateSchema, MuscleGroupEnum } from "@/lib/schemas";
+import { toast } from "sonner";
 import {
   Dialog,
   DialogContent,
@@ -27,17 +28,21 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 
-const FormSchema = CreateWorkoutTemplateSchema.extend({
-  exercises: z.array(
-    z.object({
-      exerciseId: z.string().uuid(),
-      orderIndex: z.number().min(0),
-      sets: z.number().min(1).max(20),
-      repsMin: z.number().min(1).max(100),
-      repsMax: z.number().min(1).max(100),
-      rpeTarget: z.number().min(6).max(10).optional(),
-    })
-  ),
+const FormSchema = CreateWorkoutTemplateSchema.omit({
+  userId: true,
+}).extend({
+  exercises: z
+    .array(
+      z.object({
+        exerciseId: z.string().uuid(),
+        orderIndex: z.number().min(0),
+        sets: z.number().min(1).max(20),
+        repsMin: z.number().min(1).max(100),
+        repsMax: z.number().min(1).max(100),
+        rpeTarget: z.number().min(6).max(10).optional(),
+      })
+    )
+    .optional(),
 });
 
 type FormData = z.infer<typeof FormSchema>;
@@ -63,7 +68,7 @@ export function CreateTemplateForm({
 }: CreateTemplateFormProps) {
   const [exerciseDialogOpen, setExerciseDialogOpen] = useState(false);
   const [exerciseSearch, setExerciseSearch] = useState("");
-  const [muscleGroupFilter, setMuscleGroupFilter] = useState<string>("");
+  const [muscleGroupFilter, setMuscleGroupFilter] = useState<string>("all");
 
   const {
     register,
@@ -86,9 +91,13 @@ export function CreateTemplateForm({
     name: "exercises",
   });
 
+  // Get all exercises for looking up added exercises (not filtered by muscle group)
+  const { data: allExercises } = api.exercise.getAll.useQuery({});
+
+  // Get filtered exercises for the selection dialog
   const { data: exercises } = api.exercise.getAll.useQuery({
     muscleGroup:
-      muscleGroupFilter === ""
+      muscleGroupFilter === "all"
         ? undefined
         : (muscleGroupFilter as
             | "chest"
@@ -102,14 +111,40 @@ export function CreateTemplateForm({
 
   const createTemplateMutation = api.template.create.useMutation({
     onSuccess: () => {
+      toast.success("Template created successfully!");
       onSuccess();
+    },
+    onError: (error) => {
+      // Extract user-friendly error message
+      let errorMessage = "Failed to create template";
+
+      if (error.data?.zodError) {
+        // Handle validation errors
+        const zodErrors = error.data.zodError.fieldErrors;
+        const firstError = Object.values(zodErrors)[0];
+        if (firstError && firstError[0]) {
+          errorMessage = firstError[0];
+        }
+      } else if (error.message) {
+        // Use the server error message
+        errorMessage = error.message;
+      }
+
+      toast.error(errorMessage);
+      console.error("Mutation error:", error);
     },
   });
 
   const onSubmit = async (data: FormData) => {
     try {
-      await createTemplateMutation.mutateAsync(data);
+      // The server will override this with the actual session user ID
+      const submitData = {
+        ...data,
+        userId: "00000000-0000-0000-0000-000000000000", // Valid UUID placeholder
+      };
+      await createTemplateMutation.mutateAsync(submitData);
     } catch (error) {
+      // Error is already handled by onError callback above
       console.error("Failed to create template:", error);
     }
   };
@@ -137,7 +172,7 @@ export function CreateTemplateForm({
       exercise.name.toLowerCase().includes(exerciseSearch.toLowerCase());
     const matchesMuscleGroup =
       !muscleGroupFilter ||
-      muscleGroupFilter === "" ||
+      muscleGroupFilter === "all" ||
       exercise.muscleGroup === muscleGroupFilter;
     return matchesSearch && matchesMuscleGroup;
   });
@@ -228,7 +263,7 @@ export function CreateTemplateForm({
                       <SelectValue placeholder="All muscles" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">All muscles</SelectItem>
+                      <SelectItem value="all">All muscles</SelectItem>
                       {MuscleGroupEnum.options.map((group) => (
                         <SelectItem key={group} value={group}>
                           {group.charAt(0).toUpperCase() + group.slice(1)}
@@ -288,7 +323,7 @@ export function CreateTemplateForm({
         ) : (
           <div className="space-y-3">
             {fields.map((field, index) => {
-              const exercise = exercises?.find(
+              const exercise = allExercises?.find(
                 (e) => e.id === field.exerciseId
               );
               return (
@@ -367,7 +402,17 @@ export function CreateTemplateForm({
                           max="10"
                           step="0.5"
                           {...register(`exercises.${index}.rpeTarget`, {
-                            valueAsNumber: true,
+                            setValueAs: (value) => {
+                              if (
+                                value === "" ||
+                                value === null ||
+                                value === undefined
+                              ) {
+                                return undefined;
+                              }
+                              const parsed = parseFloat(value);
+                              return isNaN(parsed) ? undefined : parsed;
+                            },
                           })}
                           placeholder="Optional"
                         />
@@ -395,11 +440,7 @@ export function CreateTemplateForm({
       </div>
 
       <div className="flex justify-end gap-2 pt-4">
-        <Button
-          type="submit"
-          disabled={isSubmitting || fields.length === 0}
-          className="min-w-32"
-        >
+        <Button type="submit" disabled={isSubmitting} className="min-w-32">
           {isSubmitting ? "Creating..." : "Create Template"}
         </Button>
       </div>
