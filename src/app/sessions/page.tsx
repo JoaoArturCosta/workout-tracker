@@ -21,7 +21,7 @@ import { formatDistanceToNow, format } from "date-fns";
 
 export default function SessionsPage() {
   const router = useRouter();
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
+  const [, setSelectedTemplateId] = useState<string>("");
 
   const { data: currentSession } = api.session.getCurrent.useQuery();
   const { data: templates } = api.template.getAll.useQuery();
