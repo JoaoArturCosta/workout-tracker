@@ -17,10 +17,10 @@ export const ExerciseSchema = z.object({
   id: z.string().uuid(),
   name: z.string().min(1).max(100),
   muscleGroup: MuscleGroupEnum,
-  equipment: z.string().optional(),
-  isCustom: z.boolean().default(false),
+  equipment: z.string().optional().nullable(),
+  isCustom: z.boolean().nullable().default(false),
   userId: z.string().uuid().optional().nullable(),
-  createdAt: z.date(),
+  createdAt: z.string().datetime().or(z.date()),
 });
 
 export const CreateExerciseSchema = z.object({
@@ -51,8 +51,8 @@ export const WorkoutTemplateSchema = z.object({
   userId: z.string().uuid(),
   name: z.string().min(1).max(50),
   dayNumber: z.number().min(1).max(7),
-  createdAt: z.date(),
-  updatedAt: z.date(),
+  createdAt: z.string().datetime().or(z.date()),
+  updatedAt: z.string().datetime().or(z.date()),
   exercises: z.array(TemplateExerciseSchema).optional(),
 });
 
@@ -97,8 +97,8 @@ export const WorkoutSessionSchema = z.object({
   id: z.string().uuid(),
   userId: z.string().uuid(),
   templateId: z.string().uuid(),
-  startTime: z.date(),
-  endTime: z.date().optional(),
+  startTime: z.string().datetime().or(z.date()),
+  endTime: z.string().datetime().or(z.date()).optional(),
   durationMinutes: z.number().positive().optional(),
   completed: z.boolean().default(false),
   exercises: z.array(SessionExerciseSchema).optional(),
@@ -118,7 +118,7 @@ export const BodyWeightLogSchema = z.object({
   userId: z.string().uuid(),
   weight: z.number().positive().max(1000),
   unit: WeightUnitEnum.default("kg"),
-  loggedAt: z.date(),
+  loggedAt: z.string().datetime().or(z.date()),
 });
 
 export const CreateBodyWeightLogSchema = BodyWeightLogSchema.omit({

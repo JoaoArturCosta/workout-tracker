@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { eq, and, desc, asc, gte, sql } from "drizzle-orm";
+import { eq, and, desc, asc, gte, inArray } from "drizzle-orm";
 import { createTRPCRouter, protectedProcedure } from "@/server/api/trpc";
 import {
   bodyWeightLogs,
@@ -304,7 +304,7 @@ export const progressRouter = createTRPCRouter({
         )
         .where(
           and(
-            sql`${sessionExercises.sessionId} = ANY(${sessionIds})`,
+            inArray(sessionExercises.sessionId, sessionIds),
             input.exerciseId
               ? eq(sessionExercises.exerciseId, input.exerciseId)
               : undefined

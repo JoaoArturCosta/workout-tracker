@@ -313,13 +313,13 @@ export default function TemplatesPage() {
                                     <Badge
                                       variant="secondary"
                                       className={`text-xs ${getMuscleGroupColor(
-                                        te.exercises?.muscleGroup || ""
+                                        te.exercise?.muscleGroup || ""
                                       )}`}
                                     >
-                                      {te.exercises?.muscleGroup}
+                                      {te.exercise?.muscleGroup}
                                     </Badge>
                                     <span className="font-medium">
-                                      {te.exercises?.name}
+                                      {te.exercise?.name}
                                     </span>
                                   </div>
                                   <span className="text-muted-foreground">

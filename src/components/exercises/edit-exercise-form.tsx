@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/select";
 import { api } from "@/lib/trpc";
 import { toast } from "sonner";
-import type { Exercise } from "@/lib/db/schema";
+import type { Exercise } from "@/lib/schemas";
 
 const editExerciseSchema = z.object({
   name: z.string().min(1, "Exercise name is required").max(100),

@@ -17,8 +17,6 @@ export const exerciseRouter = createTRPCRouter({
   getAll: publicProcedure
     .input(ExerciseFilterSchema)
     .query(async ({ input, ctx }) => {
-      let query = ctx.db.select().from(exercises);
-
       // Build where conditions
       const conditions = [];
 
@@ -34,13 +32,16 @@ export const exerciseRouter = createTRPCRouter({
         conditions.push(eq(exercises.isCustom, input.isCustom));
       }
 
-      // Apply where conditions if any
-      if (conditions.length > 0) {
-        query = query.where(and(...conditions));
-      }
+      // Execute query with optional where conditions
+      const result =
+        conditions.length > 0
+          ? await ctx.db
+              .select()
+              .from(exercises)
+              .where(and(...conditions))
+              .orderBy(exercises.name)
+          : await ctx.db.select().from(exercises).orderBy(exercises.name);
 
-      // Execute query with ordering
-      const result = await query.orderBy(exercises.name);
       return result;
     }),
 

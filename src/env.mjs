@@ -1,4 +1,8 @@
 import { z } from "zod";
+import { config } from "dotenv";
+
+// Load environment variables from .env.local
+config({ path: ".env.local" });
 
 const envSchema = z.object({
   // Database

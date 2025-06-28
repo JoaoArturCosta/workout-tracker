@@ -129,7 +129,8 @@ export default function SessionPage({ params }: SessionPageProps) {
   const totalExercises = exercises.length;
   const completedSets = exercises.reduce(
     (total, ex) =>
-      total + (ex.session_sets?.filter((set) => set.completed).length || 0),
+      total +
+      (ex.session_sets?.filter((set: any) => set.completed).length || 0),
     0
   );
   const totalSets = exercises.reduce(
@@ -276,7 +277,7 @@ export default function SessionPage({ params }: SessionPageProps) {
             <CardContent className="space-y-2">
               {exercises.map((exercise, index) => {
                 const completedSetsCount =
-                  exercise.session_sets?.filter((set) => set.completed)
+                  exercise.session_sets?.filter((set: any) => set.completed)
                     .length || 0;
                 const totalSetsCount = exercise.session_sets?.length || 0;
                 const isCompleted =

@@ -129,7 +129,7 @@ export default function SessionsPage() {
                           </CardTitle>
                           <div className="flex items-center gap-2 mt-1">
                             <Badge variant="outline">
-                              {getDayName(template.day_number)}
+                              {getDayName(template.dayNumber)}
                             </Badge>
                             <div className="flex items-center gap-1 text-sm text-muted-foreground">
                               <Dumbbell className="h-3 w-3" />
@@ -240,7 +240,7 @@ export default function SessionsPage() {
                         <div className="flex items-center gap-2">
                           <Badge variant="secondary">
                             {getDayName(
-                              session.workout_templates?.day_number || 1
+                              session.workout_templates?.dayNumber || 1
                             )}
                           </Badge>
                           <Button
