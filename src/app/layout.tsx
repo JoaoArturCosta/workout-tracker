@@ -1,13 +1,16 @@
 import "@/app/globals.css";
+import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import Link from "next/link";
 import { Providers } from "@/components/providers";
+import { Button } from "@/components/ui/button";
+import { Dumbbell, Target, TrendingUp, Play } from "lucide-react";
 
 const inter = Inter({ subsets: ["latin"] });
 
-export const metadata = {
+export const metadata: Metadata = {
   title: "Workout Tracker",
-  description: "Track your workouts and progress",
+  description: "Plan workouts, track progress, achieve your goals",
 };
 
 export default function RootLayout({
@@ -20,44 +23,50 @@ export default function RootLayout({
       <body className={inter.className}>
         <Providers>
           <div className="min-h-screen bg-background">
-            <nav className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+            <nav className="border-b bg-white">
               <div className="container mx-auto px-4">
-                <div className="flex h-16 items-center justify-between">
-                  <div className="flex items-center space-x-8">
-                    <Link href="/" className="text-xl font-bold">
-                      Workout Tracker
-                    </Link>
-                    <div className="hidden md:flex items-center space-x-6">
+                <div className="flex items-center justify-between h-16">
+                  <Link
+                    href="/"
+                    className="flex items-center gap-2 font-bold text-lg"
+                  >
+                    <Dumbbell className="h-6 w-6" />
+                    Workout Tracker
+                  </Link>
+
+                  <div className="flex items-center gap-4">
+                    <Button variant="ghost" asChild>
                       <Link
                         href="/exercises"
-                        className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+                        className="flex items-center gap-2"
                       >
+                        <Target className="h-4 w-4" />
                         Exercises
                       </Link>
+                    </Button>
+                    <Button variant="ghost" asChild>
                       <Link
                         href="/templates"
-                        className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+                        className="flex items-center gap-2"
                       >
+                        <TrendingUp className="h-4 w-4" />
                         Templates
                       </Link>
+                    </Button>
+                    <Button variant="ghost" asChild>
                       <Link
                         href="/sessions"
-                        className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+                        className="flex items-center gap-2"
                       >
+                        <Play className="h-4 w-4" />
                         Sessions
                       </Link>
-                      <Link
-                        href="/progress"
-                        className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
-                      >
-                        Progress
-                      </Link>
-                    </div>
+                    </Button>
                   </div>
                 </div>
               </div>
             </nav>
-            <main>{children}</main>
+            <main className="flex-1">{children}</main>
           </div>
         </Providers>
       </body>
