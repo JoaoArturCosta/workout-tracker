@@ -1,15 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, use } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
-  Play,
-  Pause,
   Square,
   Clock,
   Target,
@@ -25,12 +21,13 @@ import { SessionTimer } from "@/components/sessions/session-timer";
 import { PreviousSessionValues } from "@/components/sessions/previous-session-values";
 
 interface SessionPageProps {
-  params: {
+  params: Promise<{
     sessionId: string;
-  };
+  }>;
 }
 
 export default function SessionPage({ params }: SessionPageProps) {
+  const resolvedParams = use(params);
   const router = useRouter();
   const [currentExerciseIndex, setCurrentExerciseIndex] = useState(0);
   const [restTimer, setRestTimer] = useState(0);
@@ -38,7 +35,7 @@ export default function SessionPage({ params }: SessionPageProps) {
 
   const { data: session, refetch } =
     api.session.getSessionWithExercises.useQuery({
-      sessionId: params.sessionId,
+      sessionId: resolvedParams.sessionId,
     });
 
   const completeSessionMutation = api.session.complete.useMutation({
@@ -72,7 +69,7 @@ export default function SessionPage({ params }: SessionPageProps) {
   const handleCompleteSession = async () => {
     try {
       await completeSessionMutation.mutateAsync({
-        sessionId: params.sessionId,
+        sessionId: resolvedParams.sessionId,
       });
     } catch (error) {
       console.error("Failed to complete session:", error);

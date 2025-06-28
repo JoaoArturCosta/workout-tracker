@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,43 +15,45 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { api } from "@/lib/trpc";
-import { CreateExerciseSchema, type MuscleGroup } from "@/lib/schemas";
-import type { z } from "zod";
+import { toast } from "sonner";
 import type { Exercise } from "@/lib/db/schema";
 
-type EditExerciseFormData = z.infer<typeof CreateExerciseSchema>;
+const editExerciseSchema = z.object({
+  name: z.string().min(1, "Exercise name is required").max(100),
+  muscleGroup: z.enum(["chest", "back", "shoulders", "arms", "legs", "core"]),
+  equipment: z.string().optional(),
+});
+
+type EditExerciseFormData = z.infer<typeof editExerciseSchema>;
 
 interface EditExerciseFormProps {
   exercise: Exercise;
-  onSuccess?: () => void;
+  onSuccess: () => void;
 }
 
-const muscleGroups = [
+const muscleGroupOptions = [
   { value: "chest", label: "Chest" },
   { value: "back", label: "Back" },
   { value: "shoulders", label: "Shoulders" },
   { value: "arms", label: "Arms" },
   { value: "legs", label: "Legs" },
   { value: "core", label: "Core" },
-] as const;
+];
 
 export function EditExerciseForm({
   exercise,
   onSuccess,
 }: EditExerciseFormProps) {
-  const [selectedMuscleGroup, setSelectedMuscleGroup] = useState<string>(
-    exercise.muscleGroup
-  );
-  const utils = api.useUtils();
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const {
     register,
     handleSubmit,
-    formState: { errors },
     setValue,
-    reset,
+    watch,
+    formState: { errors },
   } = useForm<EditExerciseFormData>({
-    resolver: zodResolver(CreateExerciseSchema),
+    resolver: zodResolver(editExerciseSchema),
     defaultValues: {
       name: exercise.name,
       muscleGroup: exercise.muscleGroup,
@@ -58,33 +61,30 @@ export function EditExerciseForm({
     },
   });
 
+  const selectedMuscleGroup = watch("muscleGroup");
+
   const updateMutation = api.exercise.update.useMutation({
     onSuccess: () => {
-      utils.exercise.getCustom.invalidate();
-      utils.exercise.getAll.invalidate();
-      onSuccess?.();
+      toast.success("Exercise updated successfully!");
+      onSuccess();
+    },
+    onError: (error) => {
+      toast.error(`Failed to update exercise: ${error.message}`);
+      setIsSubmitting(false);
     },
   });
 
-  useEffect(() => {
-    reset({
-      name: exercise.name,
-      muscleGroup: exercise.muscleGroup,
-      equipment: exercise.equipment || "",
-    });
-    setSelectedMuscleGroup(exercise.muscleGroup);
-  }, [exercise, reset]);
-
-  const onSubmit = (data: EditExerciseFormData) => {
-    updateMutation.mutate({
-      id: exercise.id,
-      data,
-    });
-  };
-
-  const handleMuscleGroupChange = (value: string) => {
-    setSelectedMuscleGroup(value);
-    setValue("muscleGroup", value as MuscleGroup);
+  const onSubmit = async (data: EditExerciseFormData) => {
+    setIsSubmitting(true);
+    try {
+      await updateMutation.mutateAsync({
+        id: exercise.id,
+        data,
+      });
+    } catch (error) {
+      console.error("Failed to update exercise:", error);
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -93,12 +93,12 @@ export function EditExerciseForm({
         <Label htmlFor="name">Exercise Name</Label>
         <Input
           id="name"
-          placeholder="e.g., Incline Dumbbell Press"
           {...register("name")}
-          className={errors.name ? "border-destructive" : ""}
+          placeholder="e.g., Bench Press"
+          className={errors.name ? "border-red-500" : ""}
         />
         {errors.name && (
-          <p className="text-sm text-destructive">{errors.name.message}</p>
+          <p className="text-sm text-red-500">{errors.name.message}</p>
         )}
       </div>
 
@@ -106,25 +106,33 @@ export function EditExerciseForm({
         <Label htmlFor="muscleGroup">Muscle Group</Label>
         <Select
           value={selectedMuscleGroup}
-          onValueChange={handleMuscleGroupChange}
+          onValueChange={(value) =>
+            setValue(
+              "muscleGroup",
+              value as
+                | "chest"
+                | "back"
+                | "shoulders"
+                | "arms"
+                | "legs"
+                | "core",
+              { shouldValidate: true }
+            )
+          }
         >
-          <SelectTrigger
-            className={errors.muscleGroup ? "border-destructive" : ""}
-          >
+          <SelectTrigger className={errors.muscleGroup ? "border-red-500" : ""}>
             <SelectValue placeholder="Select muscle group" />
           </SelectTrigger>
           <SelectContent>
-            {muscleGroups.map((group) => (
-              <SelectItem key={group.value} value={group.value}>
-                {group.label}
+            {muscleGroupOptions.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
         {errors.muscleGroup && (
-          <p className="text-sm text-destructive">
-            {errors.muscleGroup.message}
-          </p>
+          <p className="text-sm text-red-500">{errors.muscleGroup.message}</p>
         )}
       </div>
 
@@ -132,30 +140,20 @@ export function EditExerciseForm({
         <Label htmlFor="equipment">Equipment (Optional)</Label>
         <Input
           id="equipment"
-          placeholder="e.g., Dumbbells, Barbell, Cable Machine"
           {...register("equipment")}
-          className={errors.equipment ? "border-destructive" : ""}
+          placeholder="e.g., Barbell, Dumbbells, Machine"
+          className={errors.equipment ? "border-red-500" : ""}
         />
         {errors.equipment && (
-          <p className="text-sm text-destructive">{errors.equipment.message}</p>
+          <p className="text-sm text-red-500">{errors.equipment.message}</p>
         )}
       </div>
 
-      <div className="flex justify-end gap-2 pt-4">
-        <Button
-          type="submit"
-          disabled={updateMutation.isPending}
-          className="w-full"
-        >
-          {updateMutation.isPending ? "Updating..." : "Update Exercise"}
+      <div className="flex justify-end space-x-2 pt-4">
+        <Button type="submit" disabled={isSubmitting} className="min-w-[100px]">
+          {isSubmitting ? "Updating..." : "Update Exercise"}
         </Button>
       </div>
-
-      {updateMutation.error && (
-        <p className="text-sm text-destructive">
-          Error updating exercise: {updateMutation.error.message}
-        </p>
-      )}
     </form>
   );
 }
