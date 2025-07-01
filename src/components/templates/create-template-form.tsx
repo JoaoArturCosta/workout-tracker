@@ -30,6 +30,20 @@ import {
 
 const FormSchema = CreateWorkoutTemplateSchema.omit({
   userId: true,
+}).extend({
+  exercises: z
+    .array(
+      z.object({
+        exerciseId: z.string().uuid(),
+        orderIndex: z.number().min(0),
+        sets: z.number().min(1).max(20),
+        repsMin: z.number().min(1).max(100),
+        repsMax: z.number().min(1).max(100),
+        rpeTarget: z.number().min(6).max(10).optional(),
+        restTimeSeconds: z.number().min(10).max(600).optional(),
+      })
+    )
+    .optional(),
 });
 
 type FormData = z.infer<typeof FormSchema>;
