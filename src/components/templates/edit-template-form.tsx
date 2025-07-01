@@ -40,6 +40,7 @@ const FormSchema = CreateWorkoutTemplateSchema.omit({
         repsMin: z.number().min(1).max(100),
         repsMax: z.number().min(1).max(100),
         rpeTarget: z.number().min(6).max(10).optional(),
+        restTimeSeconds: z.number().min(10).max(600).default(120),
       })
     )
     .optional(),
@@ -155,6 +156,7 @@ export function EditTemplateForm({
             repsMin: te.reps_min,
             repsMax: te.reps_max,
             rpeTarget: te.rpe_target || undefined,
+            restTimeSeconds: te.rest_time_seconds || 120,
           })) || [],
       });
     }
@@ -190,6 +192,7 @@ export function EditTemplateForm({
       repsMin: 8,
       repsMax: 12,
       rpeTarget: undefined,
+      restTimeSeconds: 120,
     });
     setExerciseDialogOpen(false);
   };
@@ -223,7 +226,7 @@ export function EditTemplateForm({
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label htmlFor="name">Template Name</Label>
           <Input
@@ -262,24 +265,28 @@ export function EditTemplateForm({
       </div>
 
       <div className="space-y-4">
-        <div className="flex justify-between items-center">
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
           <h3 className="text-lg font-semibold">Exercises</h3>
           <Dialog
             open={exerciseDialogOpen}
             onOpenChange={setExerciseDialogOpen}
           >
             <DialogTrigger asChild>
-              <Button type="button" variant="outline">
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full sm:w-auto"
+              >
                 <Plus className="h-4 w-4 mr-2" />
                 Add Exercise
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+            <DialogContent className="w-[95vw] max-w-2xl max-h-[80vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Select Exercise</DialogTitle>
               </DialogHeader>
               <div className="space-y-4">
-                <div className="flex gap-2">
+                <div className="flex flex-col sm:flex-row gap-2">
                   <div className="flex-1">
                     <Input
                       placeholder="Search exercises..."
@@ -291,7 +298,7 @@ export function EditTemplateForm({
                     value={muscleGroupFilter}
                     onValueChange={setMuscleGroupFilter}
                   >
-                    <SelectTrigger className="w-40">
+                    <SelectTrigger className="w-full sm:w-40">
                       <SelectValue placeholder="All muscles" />
                     </SelectTrigger>
                     <SelectContent>
@@ -314,9 +321,11 @@ export function EditTemplateForm({
                     >
                       <CardContent className="p-3">
                         <div className="flex justify-between items-center">
-                          <div>
-                            <h4 className="font-medium">{exercise.name}</h4>
-                            <div className="flex items-center gap-2 mt-1">
+                          <div className="flex-1 min-w-0">
+                            <h4 className="font-medium truncate">
+                              {exercise.name}
+                            </h4>
+                            <div className="flex flex-wrap items-center gap-2 mt-1">
                               <Badge
                                 variant="secondary"
                                 className={getMuscleGroupColor(
@@ -332,7 +341,7 @@ export function EditTemplateForm({
                               )}
                             </div>
                           </div>
-                          <Plus className="h-4 w-4" />
+                          <Plus className="h-4 w-4 flex-shrink-0 ml-2" />
                         </div>
                       </CardContent>
                     </Card>
@@ -345,9 +354,9 @@ export function EditTemplateForm({
 
         {fields.length === 0 ? (
           <Card className="border-dashed">
-            <CardContent className="p-8 text-center">
+            <CardContent className="p-6 sm:p-8 text-center">
               <Dumbbell className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-              <p className="text-muted-foreground">
+              <p className="text-muted-foreground text-sm sm:text-base">
                 No exercises added yet. Click Add Exercise to get started.
               </p>
             </CardContent>
@@ -361,38 +370,50 @@ export function EditTemplateForm({
               return (
                 <Card key={field.id} className="border-l-4 border-l-primary">
                   <CardHeader className="pb-3">
-                    <div className="flex justify-between items-center">
-                      <div className="flex items-center gap-2">
-                        <GripVertical className="h-4 w-4 text-muted-foreground cursor-move" />
-                        <span className="text-sm font-medium text-muted-foreground">
+                    <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <GripVertical className="h-4 w-4 text-muted-foreground cursor-move flex-shrink-0" />
+                        <span className="text-sm font-medium text-muted-foreground flex-shrink-0">
                           {index + 1}.
                         </span>
-                        <CardTitle className="text-base">
+                        <CardTitle className="text-base truncate">
                           {exercise?.name}
                         </CardTitle>
                         {exercise && (
                           <Badge
                             variant="secondary"
-                            className={getMuscleGroupColor(
+                            className={`${getMuscleGroupColor(
                               exercise.muscleGroup
-                            )}
+                            )} hidden sm:inline-flex`}
                           >
                             {exercise.muscleGroup}
                           </Badge>
                         )}
                       </div>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => remove(index)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        {exercise && (
+                          <Badge
+                            variant="secondary"
+                            className={`${getMuscleGroupColor(
+                              exercise.muscleGroup
+                            )} sm:hidden`}
+                          >
+                            {exercise.muscleGroup}
+                          </Badge>
+                        )}
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => remove(index)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
                   </CardHeader>
                   <CardContent className="pt-0">
-                    <div className="grid grid-cols-5 gap-3">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
                       <div className="space-y-1">
                         <Label className="text-xs">Sets</Label>
                         <Input
@@ -400,17 +421,7 @@ export function EditTemplateForm({
                           min="1"
                           max="20"
                           {...register(`exercises.${index}.sets`, {
-                            setValueAs: (value) => {
-                              if (
-                                value === "" ||
-                                value === null ||
-                                value === undefined
-                              ) {
-                                return undefined;
-                              }
-                              const parsed = parseInt(value);
-                              return isNaN(parsed) ? undefined : parsed;
-                            },
+                            valueAsNumber: true,
                           })}
                         />
                       </div>
@@ -421,17 +432,7 @@ export function EditTemplateForm({
                           min="1"
                           max="100"
                           {...register(`exercises.${index}.repsMin`, {
-                            setValueAs: (value) => {
-                              if (
-                                value === "" ||
-                                value === null ||
-                                value === undefined
-                              ) {
-                                return undefined;
-                              }
-                              const parsed = parseInt(value);
-                              return isNaN(parsed) ? undefined : parsed;
-                            },
+                            valueAsNumber: true,
                           })}
                         />
                       </div>
@@ -442,22 +443,12 @@ export function EditTemplateForm({
                           min="1"
                           max="100"
                           {...register(`exercises.${index}.repsMax`, {
-                            setValueAs: (value) => {
-                              if (
-                                value === "" ||
-                                value === null ||
-                                value === undefined
-                              ) {
-                                return undefined;
-                              }
-                              const parsed = parseInt(value);
-                              return isNaN(parsed) ? undefined : parsed;
-                            },
+                            valueAsNumber: true,
                           })}
                         />
                       </div>
                       <div className="space-y-1">
-                        <Label className="text-xs">RPE Target</Label>
+                        <Label className="text-xs">RPE</Label>
                         <Input
                           type="number"
                           min="6"
@@ -479,16 +470,32 @@ export function EditTemplateForm({
                           placeholder="Optional"
                         />
                       </div>
-                      <div className="flex items-end">
-                        <div className="text-xs text-muted-foreground space-y-1">
+                      <div className="space-y-1">
+                        <Label className="text-xs">Rest (sec)</Label>
+                        <Input
+                          type="number"
+                          min="10"
+                          max="600"
+                          {...register(`exercises.${index}.restTimeSeconds`, {
+                            valueAsNumber: true,
+                          })}
+                          placeholder="120"
+                        />
+                      </div>
+                      <div className="flex items-end col-span-1 sm:col-span-2 lg:col-span-3 xl:col-span-1">
+                        <div className="text-xs text-muted-foreground space-y-1 w-full">
                           <div className="flex items-center gap-1">
                             <Target className="h-3 w-3" />
-                            Sets: {watch(`exercises.${index}.sets`)}
+                            <span className="truncate">
+                              Sets: {watch(`exercises.${index}.sets`)}
+                            </span>
                           </div>
                           <div className="flex items-center gap-1">
                             <Dumbbell className="h-3 w-3" />
-                            Reps: {watch(`exercises.${index}.repsMin`)}-
-                            {watch(`exercises.${index}.repsMax`)}
+                            <span className="truncate">
+                              Reps: {watch(`exercises.${index}.repsMin`)}-
+                              {watch(`exercises.${index}.repsMax`)}
+                            </span>
                           </div>
                         </div>
                       </div>
@@ -502,7 +509,11 @@ export function EditTemplateForm({
       </div>
 
       <div className="flex justify-end gap-2 pt-4">
-        <Button type="submit" disabled={isSubmitting} className="min-w-32">
+        <Button
+          type="submit"
+          disabled={isSubmitting}
+          className="w-full sm:w-auto min-w-32"
+        >
           {isSubmitting ? "Updating..." : "Update Template"}
         </Button>
       </div>

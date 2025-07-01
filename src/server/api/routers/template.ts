@@ -37,6 +37,7 @@ export const templateRouter = createTRPCRouter({
             repsMin: templateExercises.repsMin,
             repsMax: templateExercises.repsMax,
             rpeTarget: templateExercises.rpeTarget,
+            restTimeSeconds: templateExercises.restTimeSeconds,
             exercise: {
               id: exercises.id,
               name: exercises.name,
@@ -92,6 +93,7 @@ export const templateRouter = createTRPCRouter({
           repsMin: templateExercises.repsMin,
           repsMax: templateExercises.repsMax,
           rpeTarget: templateExercises.rpeTarget,
+          restTimeSeconds: templateExercises.restTimeSeconds,
           exercise: {
             id: exercises.id,
             name: exercises.name,
@@ -143,6 +145,7 @@ export const templateRouter = createTRPCRouter({
           reps_min: templateExercises.repsMin,
           reps_max: templateExercises.repsMax,
           rpe_target: templateExercises.rpeTarget,
+          rest_time_seconds: templateExercises.restTimeSeconds,
           exercises: {
             id: exercises.id,
             name: exercises.name,
@@ -197,6 +200,7 @@ export const templateRouter = createTRPCRouter({
             repsMin: exercise.repsMin,
             repsMax: exercise.repsMax,
             rpeTarget: exercise.rpeTarget,
+            restTimeSeconds: exercise.restTimeSeconds ?? 120,
           })
         );
 
@@ -262,6 +266,7 @@ export const templateRouter = createTRPCRouter({
               repsMin: exercise.repsMin,
               repsMax: exercise.repsMax,
               rpeTarget: exercise.rpeTarget,
+              restTimeSeconds: exercise.restTimeSeconds ?? 120,
             })
           );
 
@@ -349,6 +354,7 @@ export const templateRouter = createTRPCRouter({
           repsMin: exercise.repsMin,
           repsMax: exercise.repsMax,
           rpeTarget: exercise.rpeTarget,
+          restTimeSeconds: exercise.restTimeSeconds,
         }));
 
         await ctx.db.insert(templateExercises).values(newTemplateExercises);

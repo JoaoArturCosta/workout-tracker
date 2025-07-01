@@ -39,6 +39,7 @@ export const TemplateExerciseSchema = z.object({
   repsMin: z.number().min(1).max(100),
   repsMax: z.number().min(1).max(100),
   rpeTarget: z.number().min(6).max(10).optional(),
+  restTimeSeconds: z.number().min(10).max(600).default(120),
 });
 
 export const CreateTemplateExerciseSchema = TemplateExerciseSchema.omit({

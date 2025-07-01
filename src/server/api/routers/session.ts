@@ -165,15 +165,23 @@ export const sessionRouter = createTRPCRouter({
         throw new Error("Session not found");
       }
 
-      // Get session exercises with exercises and sets
+      // Get session exercises with exercises, sets, and template exercise data
       const exercisesList = await ctx.db
         .select({
           sessionExercise: sessionExercises,
           exercise: exercises,
           sets: sessionSets,
+          templateExercise: templateExercises,
         })
         .from(sessionExercises)
         .leftJoin(exercises, eq(sessionExercises.exerciseId, exercises.id))
+        .leftJoin(
+          templateExercises,
+          and(
+            eq(templateExercises.templateId, sessionData.session.templateId),
+            eq(templateExercises.exerciseId, sessionExercises.exerciseId)
+          )
+        )
         .leftJoin(
           sessionSets,
           eq(sessionExercises.id, sessionSets.sessionExerciseId)
@@ -197,6 +205,7 @@ export const sessionRouter = createTRPCRouter({
             exercise_id: row.sessionExercise.exerciseId,
             order_index: row.sessionExercise.orderIndex,
             exercises: row.exercise,
+            template_exercise: row.templateExercise,
             session_sets: row.sets ? [row.sets] : [],
           });
         }

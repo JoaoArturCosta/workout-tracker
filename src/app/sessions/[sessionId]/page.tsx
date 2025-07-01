@@ -259,7 +259,10 @@ export default function SessionPage({ params }: SessionPageProps) {
                   sessionExercise={currentExercise}
                   onSetComplete={() => {
                     refetch();
-                    startRestTimer(120); // 2 minute default rest
+                    // Use the rest time from template exercise, fallback to 120 seconds
+                    const restTime =
+                      currentExercise.template_exercise?.restTimeSeconds || 120;
+                    startRestTimer(restTime);
                   }}
                 />
               </CardContent>
@@ -336,7 +339,7 @@ export default function SessionPage({ params }: SessionPageProps) {
               Workout Complete! 🎉
             </h3>
             <p className="text-sm text-green-700 mb-4">
-              You've completed all exercises. Great job!
+              You&apos;ve completed all exercises. Great job!
             </p>
             <Button
               onClick={handleCompleteSession}

@@ -125,6 +125,7 @@ export const templateExercises = pgTable(
     repsMin: integer("reps_min").notNull(),
     repsMax: integer("reps_max").notNull(),
     rpeTarget: integer("rpe_target"),
+    restTimeSeconds: integer("rest_time_seconds").default(120),
   },
   (table) => ({
     templateIdIdx: index("idx_template_exercises_template_id").on(
