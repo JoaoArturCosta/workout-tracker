@@ -123,8 +123,6 @@ export default function TemplatesPage() {
     return colors[muscleGroup] || "bg-gray-100 text-gray-800";
   };
 
-  const selectedDayTemplates = getTemplatesForDay(selectedDay);
-
   // Show loading state
   if (status === "loading") {
     return (

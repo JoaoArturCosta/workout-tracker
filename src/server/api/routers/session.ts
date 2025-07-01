@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { and, eq, desc, asc } from "drizzle-orm";
 import { createTRPCRouter, protectedProcedure } from "@/server/api/trpc";
-import { UpdateSessionSetSchema } from "@/lib/schemas";
+import { Exercise, SessionSet, UpdateSessionSetSchema } from "@/lib/schemas";
 import {
   workoutSessions,
   sessionExercises,
@@ -113,24 +113,50 @@ export const sessionRouter = createTRPCRouter({
       .orderBy(asc(sessionExercises.orderIndex));
 
     // Group sets by session exercise
-    const exercisesWithSets = exercisesList.reduce((acc, row) => {
-      const existingExercise = acc.find((e) => e.id === row.sessionExercise.id);
-      if (existingExercise) {
-        if (row.sets) {
-          existingExercise.session_sets.push(row.sets);
+    const exercisesWithSets = exercisesList.reduce(
+      (acc, row) => {
+        const existingExercise = acc.find(
+          (e) => e.id === row.sessionExercise.id
+        );
+        if (existingExercise) {
+          if (row.sets) {
+            existingExercise.sets.push({
+              ...row.sets,
+              weight: parseFloat(row.sets.weight),
+              completed: row.sets.completed ?? false,
+              rpe: row.sets.rpe ?? undefined,
+            });
+          }
+        } else {
+          acc.push({
+            id: row.sessionExercise.id,
+            sessionId: row.sessionExercise.sessionId,
+            exerciseId: row.sessionExercise.exerciseId,
+            orderIndex: row.sessionExercise.orderIndex,
+            exercises: row.exercise,
+            sets: row.sets
+              ? [
+                  {
+                    ...row.sets,
+                    weight: parseFloat(row.sets.weight),
+                    completed: row.sets.completed ?? false,
+                    rpe: row.sets.rpe ?? undefined,
+                  },
+                ]
+              : [],
+          });
         }
-      } else {
-        acc.push({
-          id: row.sessionExercise.id,
-          session_id: row.sessionExercise.sessionId,
-          exercise_id: row.sessionExercise.exerciseId,
-          order_index: row.sessionExercise.orderIndex,
-          exercises: row.exercise,
-          session_sets: row.sets ? [row.sets] : [],
-        });
-      }
-      return acc;
-    }, [] as any[]);
+        return acc;
+      },
+      [] as Array<{
+        id: string;
+        sessionId: string;
+        exerciseId: string;
+        orderIndex: number;
+        exercises: Exercise | null;
+        sets: SessionSet[];
+      }>
+    );
 
     return {
       ...currentSession.session,
@@ -190,27 +216,67 @@ export const sessionRouter = createTRPCRouter({
         .orderBy(asc(sessionExercises.orderIndex));
 
       // Group sets by session exercise
-      const exercisesWithSets = exercisesList.reduce((acc, row) => {
-        const existingExercise = acc.find(
-          (e) => e.id === row.sessionExercise.id
-        );
-        if (existingExercise) {
-          if (row.sets) {
-            existingExercise.session_sets.push(row.sets);
+      const exercisesWithSets = exercisesList.reduce(
+        (acc, row) => {
+          const existingExercise = acc.find(
+            (e) => e.id === row.sessionExercise.id
+          );
+          if (existingExercise) {
+            if (row.sets) {
+              existingExercise.sets.push({
+                ...row.sets,
+                weight: parseFloat(row.sets.weight),
+                completed: row.sets.completed ?? false,
+                rpe: row.sets.rpe ?? undefined,
+              });
+            }
+          } else {
+            acc.push({
+              id: row.sessionExercise.id,
+              sessionId: row.sessionExercise.sessionId,
+              exerciseId: row.sessionExercise.exerciseId,
+              orderIndex: row.sessionExercise.orderIndex,
+              exercises: row.exercise,
+              templateExercise: row.templateExercise
+                ? {
+                    ...row.templateExercise,
+                    rpeTarget: row.templateExercise.rpeTarget ?? undefined,
+                  }
+                : undefined,
+              sets: row.sets
+                ? [
+                    {
+                      ...row.sets,
+                      weight: parseFloat(row.sets.weight),
+                      completed: row.sets.completed ?? false,
+                      rpe: row.sets.rpe ?? undefined,
+                    },
+                  ]
+                : [],
+            });
           }
-        } else {
-          acc.push({
-            id: row.sessionExercise.id,
-            session_id: row.sessionExercise.sessionId,
-            exercise_id: row.sessionExercise.exerciseId,
-            order_index: row.sessionExercise.orderIndex,
-            exercises: row.exercise,
-            template_exercise: row.templateExercise,
-            session_sets: row.sets ? [row.sets] : [],
-          });
-        }
-        return acc;
-      }, [] as any[]);
+          return acc;
+        },
+        [] as Array<{
+          id: string;
+          sessionId: string;
+          exerciseId: string;
+          orderIndex: number;
+          exercises: Exercise | null;
+          templateExercise?: {
+            id: string;
+            templateId: string;
+            exerciseId: string;
+            orderIndex: number;
+            sets: number;
+            repsMin: number;
+            repsMax: number;
+            restTimeSeconds: number | null;
+            rpeTarget?: number | undefined;
+          };
+          sets: SessionSet[];
+        }>
+      );
 
       return {
         ...sessionData.session,
@@ -308,7 +374,9 @@ export const sessionRouter = createTRPCRouter({
         .slice(0, input.limit)
         .map(([date, sets]) => ({
           date,
-          sets: sets.sort((a: any, b: any) => a.setNumber - b.setNumber),
+          sets: sets.sort(
+            (a: SessionSet, b: SessionSet) => a.setNumber - b.setNumber
+          ),
         }));
 
       return recentSessions;

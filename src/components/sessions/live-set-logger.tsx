@@ -4,33 +4,10 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { CheckCircle2, Circle, Plus, Save } from "lucide-react";
+import { CheckCircle2, Circle, Save } from "lucide-react";
 import { api } from "@/lib/trpc";
+import type { SessionExercise, SessionSet } from "@/lib/types";
 import { toast } from "sonner";
-
-interface SessionSet {
-  id: string;
-  sessionExerciseId: string;
-  setNumber: number;
-  weight: string;
-  reps: number;
-  rpe?: number | null;
-  completed: boolean;
-}
-
-interface SessionExercise {
-  id: string;
-  session_id: string;
-  exercise_id: string;
-  order_index: number;
-  exercises?: {
-    id: string;
-    name: string;
-    muscle_group: string;
-    equipment?: string | null;
-  } | null;
-  session_sets: SessionSet[];
-}
 
 interface LiveSetLoggerProps {
   sessionExercise: SessionExercise;
@@ -66,7 +43,7 @@ export function LiveSetLogger({
   const handleEditSet = (set: SessionSet) => {
     setEditingSet(set.id);
     setTempValues({
-      weight: set.weight || "",
+      weight: set.weight?.toString() || "",
       reps: set.reps.toString(),
       rpe: set.rpe?.toString() || "",
     });
@@ -114,8 +91,9 @@ export function LiveSetLogger({
   };
 
   const sortedSets =
-    sessionExercise.session_sets?.sort((a, b) => a.setNumber - b.setNumber) ||
-    [];
+    sessionExercise.sets?.sort(
+      (a: SessionSet, b: SessionSet) => a.setNumber - b.setNumber
+    ) || [];
 
   return (
     <div className="space-y-4">

@@ -15,6 +15,7 @@ import {
   Save,
 } from "lucide-react";
 import { api } from "@/lib/trpc";
+import type { SessionSet } from "@/lib/types";
 import { toast } from "sonner";
 import { LiveSetLogger } from "@/components/sessions/live-set-logger";
 import { SessionTimer } from "@/components/sessions/session-timer";
@@ -123,18 +124,17 @@ export default function SessionPage({ params }: SessionPageProps) {
   }
 
   const exercises =
-    session.session_exercises?.sort((a, b) => a.order_index - b.order_index) ||
+    session.session_exercises?.sort((a, b) => a.orderIndex - b.orderIndex) ||
     [];
   const currentExercise = exercises[currentExerciseIndex];
   const totalExercises = exercises.length;
   const completedSets = exercises.reduce(
     (total, ex) =>
-      total +
-      (ex.session_sets?.filter((set: any) => set.completed).length || 0),
+      total + (ex.sets?.filter((set: SessionSet) => set.completed).length || 0),
     0
   );
   const totalSets = exercises.reduce(
-    (total, ex) => total + (ex.session_sets?.length || 0),
+    (total, ex) => total + (ex.sets?.length || 0),
     0
   );
 
@@ -216,10 +216,10 @@ export default function SessionPage({ params }: SessionPageProps) {
                       <Badge
                         variant="secondary"
                         className={getMuscleGroupColor(
-                          currentExercise.exercises?.muscle_group || ""
+                          currentExercise.exercises?.muscleGroup || ""
                         )}
                       >
-                        {currentExercise.exercises?.muscle_group}
+                        {currentExercise.exercises?.muscleGroup}
                       </Badge>
                       {currentExercise.exercises?.equipment && (
                         <Badge variant="outline">
@@ -261,7 +261,7 @@ export default function SessionPage({ params }: SessionPageProps) {
                     refetch();
                     // Use the rest time from template exercise, fallback to 120 seconds
                     const restTime =
-                      currentExercise.template_exercise?.restTimeSeconds || 120;
+                      currentExercise.templateExercise?.restTimeSeconds || 120;
                     startRestTimer(restTime);
                   }}
                 />
@@ -280,9 +280,9 @@ export default function SessionPage({ params }: SessionPageProps) {
             <CardContent className="space-y-2">
               {exercises.map((exercise, index) => {
                 const completedSetsCount =
-                  exercise.session_sets?.filter((set: any) => set.completed)
+                  exercise.sets?.filter((set: SessionSet) => set.completed)
                     .length || 0;
-                const totalSetsCount = exercise.session_sets?.length || 0;
+                const totalSetsCount = exercise.sets?.length || 0;
                 const isCompleted =
                   completedSetsCount === totalSetsCount && totalSetsCount > 0;
                 const isCurrent = index === currentExerciseIndex;
@@ -326,7 +326,7 @@ export default function SessionPage({ params }: SessionPageProps) {
 
           {/* Previous Session Values */}
           {currentExercise && (
-            <PreviousSessionValues exerciseId={currentExercise.exercise_id} />
+            <PreviousSessionValues exerciseId={currentExercise.exerciseId} />
           )}
         </div>
       </div>

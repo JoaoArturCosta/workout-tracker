@@ -2,6 +2,13 @@
 
 import { useState } from "react";
 import { api } from "@/lib/trpc";
+import type {
+  BodyWeightEntry,
+  SessionHistory,
+  PersonalRecord,
+  OneRMCalculation,
+  VolumeData,
+} from "@/lib/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -118,12 +125,12 @@ export default function ProgressPage() {
   const selectedExerciseName =
     exercises.find((e) => e.id === selectedExercise)?.name || "";
 
-  // Error display component
+  // Error display component - updated to handle tRPC errors
   const ErrorDisplay = ({
     error,
     retry,
   }: {
-    error: any;
+    error: { message: string };
     retry?: () => void;
   }) => (
     <div className="text-center py-8">
@@ -156,7 +163,7 @@ export default function ProgressPage() {
             <WifiOff className="h-5 w-5 text-yellow-400" />
             <div className="ml-3">
               <p className="text-sm text-yellow-700">
-                You're currently offline. Some features may be limited.
+                You&apos;re currently offline. Some features may be limited.
               </p>
             </div>
           </div>
@@ -272,7 +279,8 @@ export default function ProgressPage() {
                       {sessionHistory.length > 0
                         ? Math.round(
                             sessionHistory.reduce(
-                              (sum, s: any) => sum + s.stats.totalVolume,
+                              (sum, session: SessionHistory) =>
+                                sum + (session.stats?.totalVolume || 0),
                               0
                             ) / sessionHistory.length
                           )
@@ -307,7 +315,7 @@ export default function ProgressPage() {
                 </p>
               ) : (
                 <div className="space-y-4">
-                  {personalRecords.slice(0, 5).map((pr: any) => (
+                  {personalRecords.slice(0, 5).map((pr: PersonalRecord) => (
                     <div
                       key={pr.exerciseId}
                       className="flex flex-col sm:flex-row sm:items-center justify-between p-4 border rounded-lg gap-4"
@@ -396,7 +404,7 @@ export default function ProgressPage() {
                       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 mt-6">
                         {oneRM.calculations
                           .slice(0, 4)
-                          .map((calc: any, index) => (
+                          .map((calc: OneRMCalculation, index) => (
                             <div
                               key={index}
                               className="text-center p-4 border rounded-lg"
@@ -506,24 +514,26 @@ export default function ProgressPage() {
               <CardContent>
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                    {volumeProgression.slice(-7).map((data: any, index) => (
-                      <div
-                        key={index}
-                        className="text-center p-4 border rounded-lg"
-                      >
-                        <div className="font-bold">{data.volume}kg</div>
-                        <div className="text-sm text-muted-foreground">
-                          {new Date(data.date).toLocaleDateString()}
+                    {volumeProgression
+                      .slice(-7)
+                      .map((data: VolumeData, index) => (
+                        <div
+                          key={index}
+                          className="text-center p-4 border rounded-lg"
+                        >
+                          <div className="font-bold">{data.volume}kg</div>
+                          <div className="text-sm text-muted-foreground">
+                            {new Date(data.date).toLocaleDateString()}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      ))}
                   </div>
                   <div className="mt-6">
                     <div className="text-center">
                       <div className="text-xl sm:text-2xl font-bold">
                         Total Volume:{" "}
                         {volumeProgression.reduce(
-                          (sum: number, d: any) => sum + d.volume,
+                          (sum: number, data: VolumeData) => sum + data.volume,
                           0
                         )}
                         kg
@@ -626,7 +636,7 @@ export default function ProgressPage() {
                 </p>
               ) : (
                 <div className="space-y-4">
-                  {bodyWeightHistory.map((entry: any) => (
+                  {bodyWeightHistory.map((entry: BodyWeightEntry) => (
                     <div
                       key={entry.id}
                       className="flex items-center justify-between p-4 border rounded-lg"
@@ -667,7 +677,7 @@ export default function ProgressPage() {
                 </p>
               ) : (
                 <div className="space-y-4">
-                  {sessionHistory.map((session: any) => (
+                  {sessionHistory.map((session: SessionHistory) => (
                     <div
                       key={session.id}
                       className="p-4 sm:p-6 border rounded-lg"
@@ -676,7 +686,7 @@ export default function ProgressPage() {
                         <div>
                           <h3 className="font-bold">
                             {session.workout_templates?.name ||
-                              `Day ${session.workout_templates?.day_number}`}
+                              `Day ${session.workout_templates?.dayNumber}`}
                           </h3>
                           <p className="text-sm text-muted-foreground">
                             {session.start_time &&
@@ -685,18 +695,23 @@ export default function ProgressPage() {
                         </div>
                         <div className="text-left sm:text-right">
                           <div className="font-bold">
-                            {session.stats.totalVolume}kg
+                            {session.stats?.totalVolume || 0}kg
                           </div>
                           <div className="text-sm text-muted-foreground">
-                            {session.stats.totalSets} sets •{" "}
-                            {session.stats.exerciseCount} exercises
+                            {session.stats?.totalSets || 0} sets •{" "}
+                            {session.stats?.exerciseCount || 0} exercises
                           </div>
                         </div>
                       </div>
 
                       <div className="space-y-2">
-                        {session.session_exercises.map(
-                          (exercise: any, index: number) => (
+                        {session.session_exercises?.map(
+                          (
+                            exercise: NonNullable<
+                              SessionHistory["session_exercises"]
+                            >[0],
+                            index: number
+                          ) => (
                             <div
                               key={index}
                               className="flex items-center justify-between text-sm"
@@ -705,7 +720,7 @@ export default function ProgressPage() {
                                 {exercise.exercises?.name}
                               </span>
                               <span className="text-muted-foreground shrink-0">
-                                {exercise.session_sets.length} sets
+                                {exercise.session_sets?.length || 0} sets
                               </span>
                             </div>
                           )

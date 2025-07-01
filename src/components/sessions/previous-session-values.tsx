@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { History, TrendingUp } from "lucide-react";
 import { api } from "@/lib/trpc";
+import { SessionSet } from "@/lib/types";
 
 interface PreviousSessionValuesProps {
   exerciseId: string;
@@ -79,7 +80,7 @@ export function PreviousSessionValues({
             </div>
 
             <div className="space-y-1">
-              {session.sets.map((set: any, setIndex: number) => (
+              {session.sets.map((set: SessionSet, setIndex: number) => (
                 <div
                   key={setIndex}
                   className="flex justify-between text-xs text-muted-foreground"

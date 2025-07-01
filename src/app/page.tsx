@@ -11,6 +11,7 @@ import {
   StatCardSkeleton,
 } from "@/components/ui/loading-skeleton";
 import { api } from "@/lib/trpc";
+import type { Template, TemplateExercise, Session } from "@/lib/types";
 import {
   Dumbbell,
   Target,
@@ -158,14 +159,16 @@ export default function HomePage() {
 
   const totalWeeklyVolume =
     weeklyStats?.reduce(
-      (sum: number, session: any) => sum + (session.stats?.totalVolume || 0),
+      (sum: number, session: { stats?: { totalVolume?: number } }) =>
+        sum + (session.stats?.totalVolume || 0),
       0
     ) || 0;
 
   const averageSessionDuration = weeklyStats?.length
     ? Math.round(
         weeklyStats.reduce(
-          (sum: number, session: any) => sum + (session.duration_minutes || 0),
+          (sum: number, session: { duration_minutes: number | null }) =>
+            sum + (session.duration_minutes || 0),
           0
         ) / weeklyStats.length
       )
@@ -179,7 +182,8 @@ export default function HomePage() {
           {getGreeting()}, {session.user?.name?.split(" ")[0] || "Athlete"}! 💪
         </h1>
         <p className="text-muted-foreground">
-          Ready to crush your workout today? Let's see what you've got planned.
+          Ready to crush your workout today? Let&apos;s see what you&apos;ve got
+          planned.
         </p>
       </div>
 
@@ -334,29 +338,29 @@ export default function HomePage() {
               </div>
             ) : (
               <div className="space-y-3">
-                {templates.slice(0, 3).map((template: any) => (
+                {templates.slice(0, 3).map((template: Template) => (
                   <div
                     key={template.id}
                     className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 transition-colors"
                   >
                     <div className="flex items-center gap-3">
                       <div className="text-lg font-bold text-primary">
-                        {template.day_number}
+                        {template.dayNumber}
                       </div>
                       <div>
                         <div className="font-medium">{template.name}</div>
                         <div className="text-sm text-muted-foreground flex flex-wrap gap-1">
                           {template.template_exercises
                             ?.slice(0, 2)
-                            .map((te: any, idx: number) => (
+                            .map((te: TemplateExercise, idx: number) => (
                               <Badge
                                 key={idx}
                                 variant="outline"
                                 className={`text-xs ${getMuscleGroupColor(
-                                  te.exercises?.muscle_group
+                                  te.exercise?.muscleGroup as string
                                 )}`}
                               >
-                                {te.exercises?.muscle_group}
+                                {te.exercise?.muscleGroup}
                               </Badge>
                             ))}
                           {template.template_exercises?.length > 2 && (
@@ -391,7 +395,7 @@ export default function HomePage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {recentSession.slice(0, 2).map((session: any) => (
+              {recentSession.slice(0, 2).map((session: Session) => (
                 <div
                   key={session.id}
                   className="flex items-center justify-between p-4 border rounded-lg"
@@ -399,7 +403,7 @@ export default function HomePage() {
                   <div>
                     <div className="font-medium">
                       {session.workout_templates?.name ||
-                        `Day ${session.workout_templates?.day_number}`}
+                        `Day ${session.workout_templates?.dayNumber}`}
                     </div>
                     <div className="text-sm text-muted-foreground">
                       {session.start_time &&
@@ -408,10 +412,10 @@ export default function HomePage() {
                   </div>
                   <div className="text-right">
                     <div className="font-bold">
-                      {session.stats?.totalVolume || 0}kg
+                      {session.duration_minutes || 0}min
                     </div>
                     <div className="text-sm text-muted-foreground">
-                      {session.stats?.totalSets || 0} sets
+                      {session.completed ? "Completed" : "In Progress"}
                     </div>
                   </div>
                 </div>
