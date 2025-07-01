@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -18,15 +18,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Trash2, GripVertical, Dumbbell, Target } from "lucide-react";
 import { api } from "@/lib/trpc";
-import { CreateWorkoutTemplateSchema, MuscleGroupEnum } from "@/lib/schemas";
+import { CreateWorkoutTemplateSchema } from "@/lib/schemas";
 import { toast } from "sonner";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
+import { ExerciseSelectionDialog } from "@/components/templates/exercise-selection-dialog";
 
 const FormSchema = CreateWorkoutTemplateSchema.omit({
   userId: true,
@@ -67,10 +61,6 @@ export function EditTemplateForm({
   templateId,
   onSuccess,
 }: EditTemplateFormProps) {
-  const [exerciseDialogOpen, setExerciseDialogOpen] = useState(false);
-  const [exerciseSearch, setExerciseSearch] = useState("");
-  const [muscleGroupFilter, setMuscleGroupFilter] = useState<string>("all");
-
   const utils = api.useUtils();
   const { data: template } = api.template.getById.useQuery({ id: templateId });
 
@@ -96,23 +86,8 @@ export function EditTemplateForm({
     name: "exercises",
   });
 
-  // Get all exercises for looking up added exercises (not filtered by muscle group)
+  // Get all exercises for looking up added exercises
   const { data: allExercises } = api.exercise.getAll.useQuery({});
-
-  // Get filtered exercises for the selection dialog
-  const { data: exercises } = api.exercise.getAll.useQuery({
-    muscleGroup:
-      muscleGroupFilter === "all"
-        ? undefined
-        : (muscleGroupFilter as
-            | "chest"
-            | "back"
-            | "shoulders"
-            | "arms"
-            | "legs"
-            | "core"),
-    search: exerciseSearch,
-  });
 
   const updateTemplateMutation = api.template.update.useMutation({
     onSuccess: () => {
@@ -194,19 +169,7 @@ export function EditTemplateForm({
       rpeTarget: undefined,
       restTimeSeconds: 120,
     });
-    setExerciseDialogOpen(false);
   };
-
-  const filteredExercises = exercises?.filter((exercise) => {
-    const matchesSearch =
-      !exerciseSearch ||
-      exercise.name.toLowerCase().includes(exerciseSearch.toLowerCase());
-    const matchesMuscleGroup =
-      !muscleGroupFilter ||
-      muscleGroupFilter === "all" ||
-      exercise.muscleGroup === muscleGroupFilter;
-    return matchesSearch && matchesMuscleGroup;
-  });
 
   const getMuscleGroupColor = (muscleGroup: string) => {
     const colors: Record<string, string> = {
@@ -267,11 +230,8 @@ export function EditTemplateForm({
       <div className="space-y-4">
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
           <h3 className="text-lg font-semibold">Exercises</h3>
-          <Dialog
-            open={exerciseDialogOpen}
-            onOpenChange={setExerciseDialogOpen}
-          >
-            <DialogTrigger asChild>
+          <ExerciseSelectionDialog
+            trigger={
               <Button
                 type="button"
                 variant="outline"
@@ -280,76 +240,10 @@ export function EditTemplateForm({
                 <Plus className="h-4 w-4 mr-2" />
                 Add Exercise
               </Button>
-            </DialogTrigger>
-            <DialogContent className="w-[95vw] max-w-2xl max-h-[80vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle>Select Exercise</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4">
-                <div className="flex flex-col sm:flex-row gap-2">
-                  <div className="flex-1">
-                    <Input
-                      placeholder="Search exercises..."
-                      value={exerciseSearch}
-                      onChange={(e) => setExerciseSearch(e.target.value)}
-                    />
-                  </div>
-                  <Select
-                    value={muscleGroupFilter}
-                    onValueChange={setMuscleGroupFilter}
-                  >
-                    <SelectTrigger className="w-full sm:w-40">
-                      <SelectValue placeholder="All muscles" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All muscles</SelectItem>
-                      {MuscleGroupEnum.options.map((group) => (
-                        <SelectItem key={group} value={group}>
-                          {group.charAt(0).toUpperCase() + group.slice(1)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="grid gap-2 max-h-96 overflow-y-auto">
-                  {filteredExercises?.map((exercise) => (
-                    <Card
-                      key={exercise.id}
-                      className="cursor-pointer hover:bg-muted/50 transition-colors"
-                      onClick={() => addExercise(exercise)}
-                    >
-                      <CardContent className="p-3">
-                        <div className="flex justify-between items-center">
-                          <div className="flex-1 min-w-0">
-                            <h4 className="font-medium truncate">
-                              {exercise.name}
-                            </h4>
-                            <div className="flex flex-wrap items-center gap-2 mt-1">
-                              <Badge
-                                variant="secondary"
-                                className={getMuscleGroupColor(
-                                  exercise.muscleGroup
-                                )}
-                              >
-                                {exercise.muscleGroup}
-                              </Badge>
-                              {exercise.equipment && (
-                                <Badge variant="outline">
-                                  {exercise.equipment}
-                                </Badge>
-                              )}
-                            </div>
-                          </div>
-                          <Plus className="h-4 w-4 flex-shrink-0 ml-2" />
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              </div>
-            </DialogContent>
-          </Dialog>
+            }
+            onExerciseSelect={addExercise}
+            title="Add Exercise to Template"
+          />
         </div>
 
         {fields.length === 0 ? (
@@ -482,21 +376,13 @@ export function EditTemplateForm({
                           placeholder="120"
                         />
                       </div>
-                      <div className="flex items-end col-span-1 sm:col-span-2 lg:col-span-3 xl:col-span-1">
-                        <div className="text-xs text-muted-foreground space-y-1 w-full">
-                          <div className="flex items-center gap-1">
-                            <Target className="h-3 w-3" />
-                            <span className="truncate">
-                              Sets: {watch(`exercises.${index}.sets`)}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <Dumbbell className="h-3 w-3" />
-                            <span className="truncate">
-                              Reps: {watch(`exercises.${index}.repsMin`)}-
-                              {watch(`exercises.${index}.repsMax`)}
-                            </span>
-                          </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Target</Label>
+                        <div className="flex items-center gap-1 text-xs text-muted-foreground h-10 px-3 border rounded-md bg-muted/30">
+                          <Target className="h-3 w-3" />
+                          <span>
+                            {field.repsMin}-{field.repsMax} reps
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -508,13 +394,15 @@ export function EditTemplateForm({
         )}
       </div>
 
-      <div className="flex justify-end gap-2 pt-4">
+      <div className="flex flex-col sm:flex-row gap-3 pt-6">
         <Button
           type="submit"
-          disabled={isSubmitting}
-          className="w-full sm:w-auto min-w-32"
+          disabled={isSubmitting || updateTemplateMutation.isPending}
+          className="flex-1"
         >
-          {isSubmitting ? "Updating..." : "Update Template"}
+          {isSubmitting || updateTemplateMutation.isPending
+            ? "Updating..."
+            : "Update Template"}
         </Button>
       </div>
     </form>

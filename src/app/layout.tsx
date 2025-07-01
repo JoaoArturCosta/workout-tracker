@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Providers } from "@/components/providers";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { Button } from "@/components/ui/button";
-import { Dumbbell, Target, TrendingUp, Play, BarChart3 } from "lucide-react";
+import { Dumbbell, TrendingUp, Play, BarChart3 } from "lucide-react";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -81,20 +81,6 @@ export default function RootLayout({
                     </Link>
 
                     <div className="flex items-center gap-2 md:gap-4 overflow-x-auto">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        asChild
-                        className="shrink-0"
-                      >
-                        <Link
-                          href="/exercises"
-                          className="flex items-center gap-2"
-                        >
-                          <Target className="h-4 w-4" />
-                          <span className="hidden sm:inline">Exercises</span>
-                        </Link>
-                      </Button>
                       <Button
                         variant="ghost"
                         size="sm"
