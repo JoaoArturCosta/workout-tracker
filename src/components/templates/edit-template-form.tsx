@@ -79,6 +79,7 @@ export function EditTemplateForm({
       dayNumber: 1,
       exercises: [],
     },
+    mode: "onChange",
   });
 
   const { fields, append, remove } = useFieldArray({
@@ -120,9 +121,17 @@ export function EditTemplateForm({
   // Reset form when template data loads
   useEffect(() => {
     if (template) {
-      reset({
-        name: template.name,
-        dayNumber: template.day_number,
+      console.log("Template data:", template);
+      console.log("Day number from template:", template.day_number);
+      console.log("Day number (camelCase):", template.dayNumber);
+
+      // Use dayNumber (camelCase) first, fallback to day_number (snake_case)
+      const dayNumber = template.dayNumber || template.day_number || 1;
+      console.log("Final dayNumber value:", dayNumber);
+
+      const formData = {
+        name: template.name || "",
+        dayNumber: Number(dayNumber), // Ensure it's a number
         exercises:
           template.template_exercises?.map((te) => ({
             exerciseId: te.exercise_id,
@@ -133,7 +142,10 @@ export function EditTemplateForm({
             rpeTarget: te.rpe_target || undefined,
             restTimeSeconds: te.rest_time_seconds || 120,
           })) || [],
-      });
+      };
+
+      console.log("Form data being set:", formData);
+      reset(formData);
     }
   }, [template, reset]);
 
@@ -205,8 +217,27 @@ export function EditTemplateForm({
         <div className="space-y-2">
           <Label htmlFor="dayNumber">Day</Label>
           <Select
-            value={watch("dayNumber").toString()}
-            onValueChange={(value) => setValue("dayNumber", parseInt(value))}
+            value={(() => {
+              const dayValue = watch("dayNumber");
+              console.log("Current watch dayNumber value:", dayValue);
+              // Ensure we always return a valid string
+              if (
+                dayValue &&
+                !isNaN(dayValue) &&
+                dayValue >= 1 &&
+                dayValue <= 7
+              ) {
+                return dayValue.toString();
+              }
+              return "1"; // Default fallback
+            })()}
+            onValueChange={(value) => {
+              console.log("Setting dayNumber to:", value);
+              const numValue = parseInt(value, 10);
+              if (!isNaN(numValue)) {
+                setValue("dayNumber", numValue, { shouldValidate: true });
+              }
+            }}
           >
             <SelectTrigger>
               <SelectValue />
