@@ -1,13 +1,13 @@
 # Workout Tracker App
 
-A comprehensive workout tracking application built with Next.js 14, tRPC, NextAuth, and Supabase.
+A workout tracking application built with Next.js, tRPC, NextAuth, and PostgreSQL.
 
 ## ✅ Phase 1 Complete: Foundation Setup
 
 ### Tech Stack
 
 - **Frontend**: Next.js 14 (App Router), TypeScript, Tailwind CSS
-- **Backend**: tRPC, NextAuth (Google OAuth), Supabase
+- **Backend**: tRPC, NextAuth (Google OAuth), PostgreSQL (Supabase-hosted)
 - **Validation**: Zod (runtime validation, environment variables)
 - **UI Components**: ShadCN UI
 - **State Management**: tRPC + React Query
@@ -24,13 +24,13 @@ A comprehensive workout tracking application built with Next.js 14, tRPC, NextAu
 #### 2. Authentication System
 
 - [x] NextAuth configuration with Google OAuth provider
-- [x] Supabase adapter integration
+- [x] Drizzle PostgreSQL adapter integration
 - [x] Protected route middleware
 - [x] Session management with JWT strategy
 
 #### 3. Database Architecture
 
-- [x] Complete Supabase TypeScript type definitions
+- [x] Complete Drizzle TypeScript schema
 - [x] 8 core database tables designed:
   - `exercises` - Exercise database with muscle groups
   - `workout_templates` - User workout plans (Day 1-7)
@@ -93,7 +93,7 @@ A comprehensive workout tracking application built with Next.js 14, tRPC, NextAu
 ### Prerequisites
 
 - Node.js 18+ and npm
-- Supabase project
+- Supabase Postgres project (or another PostgreSQL provider)
 - Google OAuth credentials
 
 ### Environment Setup
@@ -112,14 +112,36 @@ NEXTAUTH_URL="http://localhost:3000"
 GOOGLE_CLIENT_ID="your-google-client-id"
 GOOGLE_CLIENT_SECRET="your-google-client-secret"
 
-# Supabase
-SUPABASE_URL="https://your-project.supabase.co"
-SUPABASE_ANON_KEY="your-anon-key"
-SUPABASE_SERVICE_ROLE_KEY="your-service-role-key"
-
 # Node Environment
 NODE_ENV="development"
 ```
+
+### Rest-finished alert setup
+
+Background rest alerts need Web Push and QStash. Foreground workout timers
+remain available without these values in development. Production builds require
+all alert values:
+
+```env
+NEXT_PUBLIC_VAPID_PUBLIC_KEY="stable-public-vapid-key"
+VAPID_PRIVATE_KEY="stable-private-vapid-key"
+VAPID_SUBJECT="mailto:alerts@example.com"
+QSTASH_TOKEN="qstash-token"
+QSTASH_CURRENT_SIGNING_KEY="current-signing-key"
+QSTASH_NEXT_SIGNING_KEY="next-signing-key"
+APP_URL="https://canonical-app.example.com"
+```
+
+Generate the VAPID pair once, store both values as deploy secrets, and reuse the
+pair across releases. Never put the private VAPID key, QStash token, signing
+keys, push endpoint, `p256dh`, or `auth` values in client code or logs.
+
+`APP_URL` must match the public URL QStash calls. Signature checks use
+`${APP_URL}/api/rest-alerts/dispatch`, so preview aliases need their own matching
+canonical value.
+
+See `docs/runbooks/rest-alerts.md` for setup, key rotation, diagnostics, and
+subscription pruning.
 
 ### Installation
 
@@ -133,12 +155,19 @@ npm run dev
 
 ### Database Setup
 
-Create the following tables in your Supabase database:
+Use the tracked Drizzle migrations against the PostgreSQL connection in
+`DATABASE_URL`. Runtime access goes through authenticated server-side Drizzle;
+the app does not expose a browser Supabase client or claim database RLS.
+
+```bash
+npm run db:generate
+npm run db:migrate
+```
+
+The SQL below is a legacy reference only and is not an install path. Do not run
+it against a new database.
 
 ```sql
--- Enable Row Level Security
-ALTER TABLE auth.users ENABLE ROW LEVEL SECURITY;
-
 -- Create exercises table
 CREATE TABLE exercises (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -211,19 +240,6 @@ CREATE TABLE body_weight_logs (
   logged_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- Create RLS policies
-CREATE POLICY "Users can view all exercises" ON exercises FOR SELECT USING (true);
-CREATE POLICY "Users can create custom exercises" ON exercises FOR INSERT WITH CHECK (auth.uid() = user_id AND is_custom = true);
-CREATE POLICY "Users can update their custom exercises" ON exercises FOR UPDATE USING (auth.uid() = user_id AND is_custom = true);
-CREATE POLICY "Users can delete their custom exercises" ON exercises FOR DELETE USING (auth.uid() = user_id AND is_custom = true);
-
-CREATE POLICY "Users can manage their templates" ON workout_templates FOR ALL USING (auth.uid() = user_id);
-CREATE POLICY "Users can manage their template exercises" ON template_exercises FOR ALL USING (auth.uid() IN (SELECT user_id FROM workout_templates WHERE id = template_id));
-CREATE POLICY "Users can manage their sessions" ON workout_sessions FOR ALL USING (auth.uid() = user_id);
-CREATE POLICY "Users can manage their session exercises" ON session_exercises FOR ALL USING (auth.uid() IN (SELECT user_id FROM workout_sessions WHERE id = session_id));
-CREATE POLICY "Users can manage their session sets" ON session_sets FOR ALL USING (auth.uid() IN (SELECT ws.user_id FROM workout_sessions ws JOIN session_exercises se ON ws.id = se.session_id WHERE se.id = session_exercise_id));
-CREATE POLICY "Users can manage their body weight logs" ON body_weight_logs FOR ALL USING (auth.uid() = user_id);
-
 -- Create indexes for performance
 CREATE INDEX idx_exercises_muscle_group ON exercises(muscle_group);
 CREATE INDEX idx_exercises_user_id ON exercises(user_id);
@@ -282,7 +298,7 @@ CREATE INDEX idx_body_weight_logs_user_id ON body_weight_logs(user_id);
 
 ### Security Features
 
-- **Row Level Security** in Supabase
+- **Authenticated server-side access** through NextAuth and Drizzle
 - **Protected tRPC procedures** with authentication
 - **OAuth integration** with Google
 - **Input sanitization** and validation

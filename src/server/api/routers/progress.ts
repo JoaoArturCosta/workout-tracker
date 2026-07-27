@@ -1,17 +1,27 @@
+import { and, asc, desc, eq, gte, inArray } from "drizzle-orm";
 import { z } from "zod";
-import { eq, and, desc, asc, gte, inArray } from "drizzle-orm";
-import { createTRPCRouter, protectedProcedure } from "@/server/api/trpc";
+
 import {
   bodyWeightLogs,
-  sessionSets,
   sessionExercises,
+  sessionSets,
   workoutSessions,
-  workoutTemplates,
-  exercises,
 } from "@/lib/db/schema";
+import { createTRPCRouter, protectedProcedure } from "@/server/api/trpc";
+import { summarizeCompletedSets } from "@/server/workouts/progress-analytics";
+
+const TimeframeSchema = z.enum(["week", "month", "year"]);
+
+const startOfTimeframe = (timeframe: z.infer<typeof TimeframeSchema>) => {
+  const days = { week: 7, month: 30, year: 365 }[timeframe];
+  const start = new Date();
+  start.setDate(start.getDate() - days);
+  return start;
+};
+
+const round = (value: number) => Math.round(value * 100) / 100;
 
 export const progressRouter = createTRPCRouter({
-  // Body Weight Logging
   logBodyWeight: protectedProcedure
     .input(
       z.object({
@@ -28,52 +38,38 @@ export const progressRouter = createTRPCRouter({
           unit: input.unit,
         })
         .returning();
-
       return result;
     }),
 
   getBodyWeightHistory: protectedProcedure
     .input(
       z.object({
-        timeframe: z.enum(["week", "month", "year"]).optional(),
-        limit: z.number().min(1).max(100).default(50),
+        timeframe: TimeframeSchema.optional(),
+        limit: z.number().int().min(1).max(100).default(50),
       })
     )
     .query(async ({ input, ctx }) => {
-      const timeframes = {
-        week: 7,
-        month: 30,
-        year: 365,
-      };
-
       const conditions = [eq(bodyWeightLogs.userId, ctx.session.user.id)];
-
       if (input.timeframe) {
-        const days = timeframes[input.timeframe];
-        const startDate = new Date();
-        startDate.setDate(startDate.getDate() - days);
-        conditions.push(gte(bodyWeightLogs.loggedAt, startDate));
+        conditions.push(
+          gte(bodyWeightLogs.loggedAt, startOfTimeframe(input.timeframe))
+        );
       }
-
-      const result = await ctx.db
+      return ctx.db
         .select()
         .from(bodyWeightLogs)
         .where(and(...conditions))
         .orderBy(desc(bodyWeightLogs.loggedAt))
         .limit(input.limit);
-
-      return result;
     }),
 
-  // Get 1RM calculation for an exercise
   getOneRM: protectedProcedure
     .input(z.object({ exerciseId: z.string().uuid() }))
     .query(async ({ input, ctx }) => {
-      // Get all completed sets for this exercise
-      const setsData = await ctx.db
+      const rows = await ctx.db
         .select({
-          weight: sessionSets.weight,
-          reps: sessionSets.reps,
+          externalLoadKg: sessionSets.externalLoadKg,
+          actualReps: sessionSets.actualReps,
         })
         .from(sessionSets)
         .innerJoin(
@@ -86,62 +82,46 @@ export const progressRouter = createTRPCRouter({
         )
         .where(
           and(
-            eq(sessionExercises.exerciseId, input.exerciseId),
             eq(workoutSessions.userId, ctx.session.user.id),
-            eq(workoutSessions.completed, true),
-            eq(sessionSets.completed, true)
+            inArray(workoutSessions.status, ["Completed", "Partial"]),
+            eq(sessionSets.status, "Completed"),
+            eq(sessionSets.mode, "Reps"),
+            eq(sessionExercises.mode, "Reps"),
+            eq(sessionExercises.exerciseId, input.exerciseId)
           )
-        )
-        .orderBy(desc(sessionSets.weight))
-        .limit(10);
-
-      if (setsData.length === 0) {
-        return null;
-      }
-
-      // Calculate 1RM using Epley formula: weight * (1 + reps/30)
-      const oneRMCalculations = setsData.map((set) => {
-        const weight = parseFloat(set.weight);
-        return {
-          weight,
-          reps: set.reps,
-          oneRM: Math.round(weight * (1 + set.reps / 30) * 100) / 100,
-        };
-      });
-
-      // Return the highest calculated 1RM
-      const maxOneRM = Math.max(...oneRMCalculations.map((calc) => calc.oneRM));
-
+        );
+      const calculations = rows.flatMap((row) =>
+        row.actualReps === null
+          ? []
+          : [
+              {
+                weight: Number(row.externalLoadKg),
+                reps: row.actualReps,
+                oneRM: round(
+                  Number(row.externalLoadKg) * (1 + row.actualReps / 30)
+                ),
+              },
+            ]
+      );
+      if (!calculations.length) return null;
       return {
-        oneRepMax: maxOneRM,
-        calculations: oneRMCalculations,
+        oneRepMax: Math.max(...calculations.map((row) => row.oneRM)),
+        calculations,
       };
     }),
 
-  // Get volume progression for an exercise
   getVolumeProgression: protectedProcedure
     .input(
       z.object({
         exerciseId: z.string().uuid(),
-        timeframe: z.enum(["week", "month", "year"]).optional(),
+        timeframe: TimeframeSchema.optional(),
       })
     )
     .query(async ({ input, ctx }) => {
-      const timeframes = {
-        week: 7,
-        month: 30,
-        year: 365,
-      };
-
-      const days = timeframes[input.timeframe || "month"];
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - days);
-
-      // Get sets data with dates
-      const setsData = await ctx.db
+      const rows = await ctx.db
         .select({
-          weight: sessionSets.weight,
-          reps: sessionSets.reps,
+          externalLoadKg: sessionSets.externalLoadKg,
+          actualReps: sessionSets.actualReps,
           startTime: workoutSessions.startTime,
         })
         .from(sessionSets)
@@ -155,46 +135,40 @@ export const progressRouter = createTRPCRouter({
         )
         .where(
           and(
-            eq(sessionExercises.exerciseId, input.exerciseId),
             eq(workoutSessions.userId, ctx.session.user.id),
-            eq(workoutSessions.completed, true),
-            eq(sessionSets.completed, true),
-            gte(workoutSessions.startTime, startDate)
+            inArray(workoutSessions.status, ["Completed", "Partial"]),
+            eq(sessionSets.status, "Completed"),
+            eq(sessionSets.mode, "Reps"),
+            eq(sessionExercises.mode, "Reps"),
+            eq(sessionExercises.exerciseId, input.exerciseId),
+            gte(
+              workoutSessions.startTime,
+              startOfTimeframe(input.timeframe ?? "month")
+            )
           )
         )
         .orderBy(asc(workoutSessions.startTime));
 
-      // Calculate volume (weight * reps) grouped by date
-      const volumeByDate = setsData.reduce(
-        (acc: Record<string, number>, set) => {
-          const date = set.startTime.toISOString().split("T")[0];
-          const weight = parseFloat(set.weight);
-          const volume = weight * set.reps;
-          acc[date] = (acc[date] || 0) + volume;
-          return acc;
-        },
-        {}
-      );
-
-      const progressData = Object.entries(volumeByDate).map(
-        ([date, volume]) => ({
-          date,
-          volume: Math.round(volume * 100) / 100,
-        })
-      );
-
-      return progressData;
+      const volumeByDate = new Map<string, number>();
+      for (const row of rows) {
+        if (row.actualReps === null) continue;
+        const date = row.startTime.toISOString().slice(0, 10);
+        const volume = Number(row.externalLoadKg) * row.actualReps;
+        volumeByDate.set(date, (volumeByDate.get(date) ?? 0) + volume);
+      }
+      return [...volumeByDate].map(([date, volume]) => ({
+        date,
+        volume: round(volume),
+      }));
     }),
 
-  // Get strength standards comparison
   getStrengthStandards: protectedProcedure
     .input(z.object({ exerciseId: z.string().uuid() }))
     .query(async ({ input, ctx }) => {
-      // Get user's best set for this exercise
-      const [bestSet] = await ctx.db
+      const rows = await ctx.db
         .select({
-          weight: sessionSets.weight,
-          reps: sessionSets.reps,
+          externalLoadKg: sessionSets.externalLoadKg,
+          actualReps: sessionSets.actualReps,
         })
         .from(sessionSets)
         .innerJoin(
@@ -207,221 +181,243 @@ export const progressRouter = createTRPCRouter({
         )
         .where(
           and(
-            eq(sessionExercises.exerciseId, input.exerciseId),
             eq(workoutSessions.userId, ctx.session.user.id),
-            eq(workoutSessions.completed, true),
-            eq(sessionSets.completed, true)
+            inArray(workoutSessions.status, ["Completed", "Partial"]),
+            eq(sessionSets.status, "Completed"),
+            eq(sessionSets.mode, "Reps"),
+            eq(sessionExercises.mode, "Reps"),
+            eq(sessionExercises.exerciseId, input.exerciseId)
           )
-        )
-        .orderBy(desc(sessionSets.weight))
-        .limit(1);
-
-      if (!bestSet) {
-        return null;
-      }
-
-      const weight = parseFloat(bestSet.weight);
-      const oneRM = weight * (1 + bestSet.reps / 30);
-
-      // Basic strength standards (these would come from a proper database in production)
+        );
+      const oneRepMaxes = rows.flatMap((row) =>
+        row.actualReps === null
+          ? []
+          : [
+              Number(row.externalLoadKg) *
+                (1 + row.actualReps / 30),
+            ]
+      );
+      if (!oneRepMaxes.length) return null;
+      const oneRM = Math.max(...oneRepMaxes);
       const standards = {
         beginner: oneRM * 0.5,
         novice: oneRM * 0.75,
-        intermediate: oneRM * 1.0,
+        intermediate: oneRM,
         advanced: oneRM * 1.5,
-        elite: oneRM * 2.0,
+        elite: oneRM * 2,
       };
-
       let currentLevel = "beginner";
       if (oneRM >= standards.elite) currentLevel = "elite";
       else if (oneRM >= standards.advanced) currentLevel = "advanced";
-      else if (oneRM >= standards.intermediate) currentLevel = "intermediate";
-      else if (oneRM >= standards.novice) currentLevel = "novice";
-
+      else if (oneRM >= standards.intermediate) {
+        currentLevel = "intermediate";
+      } else if (oneRM >= standards.novice) currentLevel = "novice";
       return {
-        userOneRM: Math.round(oneRM * 100) / 100,
+        userOneRM: round(oneRM),
         currentLevel,
         standards: {
-          beginner: Math.round(standards.beginner * 100) / 100,
-          novice: Math.round(standards.novice * 100) / 100,
-          intermediate: Math.round(standards.intermediate * 100) / 100,
-          advanced: Math.round(standards.advanced * 100) / 100,
-          elite: Math.round(standards.elite * 100) / 100,
+          beginner: round(standards.beginner),
+          novice: round(standards.novice),
+          intermediate: round(standards.intermediate),
+          advanced: round(standards.advanced),
+          elite: round(standards.elite),
         },
       };
     }),
 
-  // Session History with detailed analytics
   getSessionHistory: protectedProcedure
     .input(
       z.object({
-        limit: z.number().min(1).max(50).default(20),
+        limit: z.number().int().min(1).max(50).default(20),
         exerciseId: z.string().uuid().optional(),
       })
     )
     .query(async ({ input, ctx }) => {
-      // Get sessions with basic info
-      const sessionsQuery = ctx.db
+      const sessions = await ctx.db
         .select({
-          session: workoutSessions,
-          template: workoutTemplates,
+          id: workoutSessions.id,
+          status: workoutSessions.status,
+          templateName: workoutSessions.templateName,
+          templateDayNumber: workoutSessions.templateDayNumber,
+          startTime: workoutSessions.startTime,
+          endTime: workoutSessions.endTime,
+          durationMinutes: workoutSessions.durationMinutes,
         })
         .from(workoutSessions)
-        .leftJoin(
-          workoutTemplates,
-          eq(workoutSessions.templateId, workoutTemplates.id)
-        )
         .where(
           and(
             eq(workoutSessions.userId, ctx.session.user.id),
-            eq(workoutSessions.completed, true)
+            inArray(workoutSessions.status, ["Completed", "Partial"])
           )
         )
         .orderBy(desc(workoutSessions.startTime))
         .limit(input.limit);
+      if (!sessions.length) return [];
 
-      const sessions = await sessionsQuery;
-
-      if (sessions.length === 0) {
-        return [];
-      }
-
-      // Get session exercises and sets for all sessions
-      const sessionIds = sessions.map((s) => s.session.id);
-      const sessionExercisesData = await ctx.db
+      const rows = await ctx.db
         .select({
           sessionId: sessionExercises.sessionId,
+          occurrenceId: sessionExercises.id,
           exerciseId: sessionExercises.exerciseId,
+          exerciseName: sessionExercises.exerciseName,
           orderIndex: sessionExercises.orderIndex,
-          exercise: exercises,
-          sets: sessionSets,
+          mode: sessionExercises.mode,
+          set: sessionSets,
         })
         .from(sessionExercises)
-        .leftJoin(exercises, eq(sessionExercises.exerciseId, exercises.id))
-        .leftJoin(
+        .innerJoin(
           sessionSets,
-          eq(sessionExercises.id, sessionSets.sessionExerciseId)
+          eq(sessionSets.sessionExerciseId, sessionExercises.id)
         )
         .where(
           and(
-            inArray(sessionExercises.sessionId, sessionIds),
+            inArray(
+              sessionExercises.sessionId,
+              sessions.map((session) => session.id)
+            ),
+            eq(sessionSets.status, "Completed"),
             input.exerciseId
               ? eq(sessionExercises.exerciseId, input.exerciseId)
               : undefined
           )
+        )
+        .orderBy(
+          asc(sessionExercises.orderIndex),
+          asc(sessionSets.setNumber)
         );
 
-      // Group data by session
-      const sessionData = sessions.map((sessionInfo) => {
-        const sessionExercisesForSession = sessionExercisesData.filter(
-          (ex) => ex.sessionId === sessionInfo.session.id
+      return sessions.map((session) => {
+        const sessionRows = rows.filter(
+          (row) => row.sessionId === session.id
         );
-
-        // Group exercises with their sets
-        const exercisesWithSets = sessionExercisesForSession.reduce(
-          (acc, row) => {
-            const existingExercise = acc.find(
-              (e) => e.exerciseId === row.exerciseId
-            );
-            if (existingExercise) {
-              if (row.sets && row.sets.completed) {
-                existingExercise.session_sets.push(row.sets);
-              }
-            } else {
-              acc.push({
-                exerciseId: row.exerciseId,
-                orderIndex: row.orderIndex,
-                exercises: row.exercise,
-                session_sets: row.sets && row.sets.completed ? [row.sets] : [],
-              });
-            }
-            return acc;
-          },
-          [] as Array<{
+        const occurrenceMap = new Map<
+          string,
+          {
+            id: string;
             exerciseId: string;
+            exerciseName: string;
             orderIndex: number;
-            exercises: typeof exercises.$inferSelect | null;
-            session_sets: (typeof sessionSets.$inferSelect)[];
-          }>
+            mode: "Reps" | "Duration";
+            sets: (typeof sessionSets.$inferSelect)[];
+          }
+        >();
+        for (const row of sessionRows) {
+          const occurrence =
+            occurrenceMap.get(row.occurrenceId) ?? {
+              id: row.occurrenceId,
+              exerciseId: row.exerciseId,
+              exerciseName: row.exerciseName ?? "Exercise",
+              orderIndex: row.orderIndex,
+              mode: row.mode,
+              sets: [],
+            };
+          occurrence.sets.push(row.set);
+          occurrenceMap.set(row.occurrenceId, occurrence);
+        }
+        const stats = summarizeCompletedSets(
+          sessionRows.map((row) => ({
+            workoutStatus: session.status,
+            setStatus: row.set.status,
+            mode: row.set.mode,
+            externalLoadKg: Number(row.set.externalLoadKg),
+            actualReps: row.set.actualReps,
+            actualSeconds: row.set.actualSeconds,
+          }))
         );
-
-        // Calculate session stats
-        const totalVolume = exercisesWithSets.reduce(
-          (exerciseTotal, exercise) => {
-            const exerciseVolume = exercise.session_sets.reduce(
-              (setTotal: number, set: typeof sessionSets.$inferSelect) => {
-                const weight = parseFloat(set.weight);
-                return setTotal + weight * set.reps;
-              },
-              0
-            );
-            return exerciseTotal + exerciseVolume;
-          },
-          0
-        );
-
-        const totalSets = exercisesWithSets.reduce((total, exercise) => {
-          return total + exercise.session_sets.length;
-        }, 0);
-
         return {
-          id: sessionInfo.session.id,
-          start_time: sessionInfo.session.startTime?.toISOString(),
-          end_time: sessionInfo.session.endTime?.toISOString(),
-          duration_minutes: sessionInfo.session.durationMinutes,
-          completed: sessionInfo.session.completed,
-          workout_templates: sessionInfo.template,
-          session_exercises: exercisesWithSets,
+          ...session,
+          templateName: session.templateName ?? "Workout",
+          duration_minutes: session.durationMinutes,
+          occurrences: [...occurrenceMap.values()],
           stats: {
-            totalVolume: Math.round(totalVolume * 100) / 100,
-            totalSets,
-            exerciseCount: exercisesWithSets.length,
+            ...stats,
+            totalVolume: round(stats.totalVolume),
+            totalSets: stats.completedSetCount,
+            exerciseCount: occurrenceMap.size,
           },
         };
       });
-
-      return sessionData;
     }),
 
-  // Enhanced Personal Records tracking
+  getDurationSummary: protectedProcedure
+    .input(
+      z.object({
+        timeframe: TimeframeSchema.optional(),
+      })
+    )
+    .query(async ({ input, ctx }) => {
+      const conditions = [
+        eq(workoutSessions.userId, ctx.session.user.id),
+        inArray(workoutSessions.status, ["Completed", "Partial"]),
+        eq(sessionSets.status, "Completed"),
+        eq(sessionSets.mode, "Duration"),
+        eq(sessionExercises.mode, "Duration"),
+      ];
+      if (input.timeframe) {
+        conditions.push(
+          gte(
+            workoutSessions.startTime,
+            startOfTimeframe(input.timeframe)
+          )
+        );
+      }
+      const rows = await ctx.db
+        .select({ actualSeconds: sessionSets.actualSeconds })
+        .from(sessionSets)
+        .innerJoin(
+          sessionExercises,
+          eq(sessionSets.sessionExerciseId, sessionExercises.id)
+        )
+        .innerJoin(
+          workoutSessions,
+          eq(sessionExercises.sessionId, workoutSessions.id)
+        )
+        .where(and(...conditions));
+      return {
+        completedDurationSets: rows.length,
+        totalActualSeconds: rows.reduce(
+          (sum, row) => sum + (row.actualSeconds ?? 0),
+          0
+        ),
+      };
+    }),
+
   getPersonalRecords: protectedProcedure
     .input(
       z.object({
         exerciseId: z.string().uuid().optional(),
-        timeframe: z.enum(["week", "month", "year", "all"]).default("all"),
+        timeframe: z
+          .enum(["week", "month", "year", "all"])
+          .default("all"),
       })
     )
     .query(async ({ input, ctx }) => {
-      const timeframes = {
-        week: 7,
-        month: 30,
-        year: 365,
-      };
-
-      const whereConditions = [
+      const conditions = [
         eq(workoutSessions.userId, ctx.session.user.id),
-        eq(workoutSessions.completed, true),
-        eq(sessionSets.completed, true),
+        inArray(workoutSessions.status, ["Completed", "Partial"]),
+        eq(sessionSets.status, "Completed"),
+        eq(sessionSets.mode, "Reps"),
+        eq(sessionExercises.mode, "Reps"),
       ];
-
       if (input.exerciseId) {
-        whereConditions.push(eq(sessionExercises.exerciseId, input.exerciseId));
+        conditions.push(
+          eq(sessionExercises.exerciseId, input.exerciseId)
+        );
       }
-
       if (input.timeframe !== "all") {
-        const days = timeframes[input.timeframe];
-        const startDate = new Date();
-        startDate.setDate(startDate.getDate() - days);
-        whereConditions.push(gte(workoutSessions.startTime, startDate));
+        conditions.push(
+          gte(
+            workoutSessions.startTime,
+            startOfTimeframe(input.timeframe)
+          )
+        );
       }
-
-      const setsData = await ctx.db
+      const rows = await ctx.db
         .select({
-          weight: sessionSets.weight,
-          reps: sessionSets.reps,
-          rpe: sessionSets.rpe,
           exerciseId: sessionExercises.exerciseId,
-          exercise: exercises,
+          exerciseName: sessionExercises.exerciseName,
+          externalLoadKg: sessionSets.externalLoadKg,
+          actualReps: sessionSets.actualReps,
           startTime: workoutSessions.startTime,
         })
         .from(sessionSets)
@@ -433,103 +429,61 @@ export const progressRouter = createTRPCRouter({
           workoutSessions,
           eq(sessionExercises.sessionId, workoutSessions.id)
         )
-        .innerJoin(exercises, eq(sessionExercises.exerciseId, exercises.id))
-        .where(and(...whereConditions));
+        .where(and(...conditions));
 
-      // Group by exercise and find PRs
-      const exercisePRs = setsData.reduce(
-        (
-          acc: Record<
-            string,
-            {
-              exerciseId: string;
-              exerciseName: string;
-              muscleGroup: string;
-              maxWeight: {
-                weight: number;
-                reps: number;
-                date: string | undefined;
-              };
-              maxVolume: {
-                weight: number;
-                reps: number;
-                volume: number;
-                date: string | undefined;
-              };
-              maxOneRM: {
-                weight: number;
-                reps: number;
-                oneRM: number;
-                date: string | undefined;
-              };
-            }
-          >,
-          set
-        ) => {
-          const exerciseId = set.exerciseId;
-          const weight = parseFloat(set.weight);
-          const oneRM = weight * (1 + set.reps / 30);
-          const volume = weight * set.reps;
-
-          if (!acc[exerciseId]) {
-            acc[exerciseId] = {
-              exerciseId,
-              exerciseName: set.exercise.name,
-              muscleGroup: set.exercise.muscleGroup,
-              maxWeight: {
-                weight,
-                reps: set.reps,
-                date: set.startTime?.toISOString(),
-              },
-              maxVolume: {
-                weight,
-                reps: set.reps,
-                volume,
-                date: set.startTime?.toISOString(),
-              },
-              maxOneRM: {
-                weight,
-                reps: set.reps,
-                oneRM,
-                date: set.startTime?.toISOString(),
-              },
-            };
-          } else {
-            // Update max weight
-            if (weight > acc[exerciseId].maxWeight.weight) {
-              acc[exerciseId].maxWeight = {
-                weight,
-                reps: set.reps,
-                date: set.startTime?.toISOString(),
-              };
-            }
-
-            // Update max volume
-            if (volume > acc[exerciseId].maxVolume.volume) {
-              acc[exerciseId].maxVolume = {
-                weight,
-                reps: set.reps,
-                volume,
-                date: set.startTime?.toISOString(),
-              };
-            }
-
-            // Update max 1RM
-            if (oneRM > acc[exerciseId].maxOneRM.oneRM) {
-              acc[exerciseId].maxOneRM = {
-                weight,
-                reps: set.reps,
-                oneRM,
-                date: set.startTime?.toISOString(),
-              };
-            }
-          }
-
-          return acc;
+      type RecordCard = {
+        exerciseId: string;
+        exerciseName: string;
+        maxWeight: { weight: number; reps: number; date: string };
+        maxVolume: {
+          weight: number;
+          reps: number;
+          volume: number;
+          date: string;
+        };
+        maxOneRM: {
+          weight: number;
+          reps: number;
+          oneRM: number;
+          date: string;
+        };
+      };
+      const cards = new Map<string, RecordCard>();
+      for (const row of rows) {
+        if (row.actualReps === null) continue;
+        const weight = Number(row.externalLoadKg);
+        const reps = row.actualReps;
+        const date = row.startTime.toISOString();
+        const volume = weight * reps;
+        const oneRM = weight * (1 + reps / 30);
+        const card = cards.get(row.exerciseId) ?? {
+          exerciseId: row.exerciseId,
+          exerciseName: row.exerciseName ?? "Exercise",
+          maxWeight: { weight, reps, date },
+          maxVolume: { weight, reps, volume, date },
+          maxOneRM: { weight, reps, oneRM, date },
+        };
+        if (weight > card.maxWeight.weight) {
+          card.maxWeight = { weight, reps, date };
+        }
+        if (volume > card.maxVolume.volume) {
+          card.maxVolume = { weight, reps, volume, date };
+        }
+        if (oneRM > card.maxOneRM.oneRM) {
+          card.maxOneRM = { weight, reps, oneRM, date };
+        }
+        cards.set(row.exerciseId, card);
+      }
+      return [...cards.values()].map((card) => ({
+        ...card,
+        maxVolume: {
+          ...card.maxVolume,
+          volume: round(card.maxVolume.volume),
         },
-        {}
-      );
-
-      return Object.values(exercisePRs);
+        maxOneRM: {
+          ...card.maxOneRM,
+          oneRM: round(card.maxOneRM.oneRM),
+        },
+      }));
     }),
 });

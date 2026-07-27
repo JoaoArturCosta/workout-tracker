@@ -1,10 +1,17 @@
 import type { NextConfig } from "next";
 
+// Workbox RegExpRoute tests the full request URL, not just pathname.
+export const apiRuntimeCacheRule = {
+  urlPattern: /\/api(?:\/|$)/i,
+  handler: "NetworkOnly" as const,
+};
+
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const withPWA = require("next-pwa")({
   dest: "public",
   register: true,
   skipWaiting: true,
+  customWorkerDir: "worker",
   runtimeCaching: [
     {
       urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
@@ -83,18 +90,7 @@ const withPWA = require("next-pwa")({
         },
       },
     },
-    {
-      urlPattern: /^\/api\/.*$/i,
-      handler: "NetworkFirst",
-      options: {
-        cacheName: "apis",
-        expiration: {
-          maxEntries: 16,
-          maxAgeSeconds: 24 * 60 * 60, // 24 hours
-        },
-        networkTimeoutSeconds: 10, // fallback to cache if network is slow
-      },
-    },
+    apiRuntimeCacheRule,
     {
       urlPattern: /.*/i,
       handler: "NetworkFirst",

@@ -3,6 +3,7 @@ import { exerciseRouter } from "@/server/api/routers/exercise";
 import { templateRouter } from "@/server/api/routers/template";
 import { sessionRouter } from "@/server/api/routers/session";
 import { progressRouter } from "@/server/api/routers/progress";
+import { deviceRouter } from "@/server/api/routers/device";
 
 /**
  * This is the primary router for your server.
@@ -14,6 +15,7 @@ export const appRouter = createTRPCRouter({
   template: templateRouter,
   session: sessionRouter,
   progress: progressRouter,
+  device: deviceRouter,
 });
 
 // export type definition of API

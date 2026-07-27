@@ -2,384 +2,43 @@
 
 import { useState } from "react";
 import { useSession, signIn } from "next-auth/react";
+import { api } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
 import { CreateTemplateForm } from "@/components/templates/create-template-form";
 import { EditTemplateForm } from "@/components/templates/edit-template-form";
-import {
-  Plus,
-  Edit,
-  Trash2,
-  Copy,
-  Dumbbell,
-  Target,
-  Clock,
-  Calendar,
-  LogIn,
-} from "lucide-react";
-import { api } from "@/lib/trpc";
+import { Clock, Copy, Edit, Plus, Archive, RotateCcw, Dumbbell, LogIn } from "lucide-react";
 import { toast } from "sonner";
 
-const DAYS = [
-  { number: 1, name: "Day 1" },
-  { number: 2, name: "Day 2" },
-  { number: 3, name: "Day 3" },
-  { number: 4, name: "Day 4" },
-  { number: 5, name: "Day 5" },
-  { number: 6, name: "Day 6" },
-  { number: 7, name: "Day 7" },
-];
+// Legacy and expanded template rows coexist until the contract migration.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyRecord = Record<string, any>;
 
 export default function TemplatesPage() {
   const { data: session, status } = useSession();
   const [selectedDay, setSelectedDay] = useState(1);
-  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
-  const [editingTemplate, setEditingTemplate] = useState<string | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const templateApi = api.template;
+  const query = templateApi.getAll.useQuery(undefined, { enabled: !!session?.user });
+  const templates = ((query.data ?? []) as AnyRecord[]);
+  const duplicate = templateApi.duplicate.useMutation({ onSuccess: () => { toast.success("Template duplicated"); query.refetch(); }, onError: (error) => toast.error(error.message) });
+  const archive = templateApi.archive.useMutation({ onSuccess: () => { toast.success("Template archived"); query.refetch(); }, onError: (error) => toast.error(error.message) });
+  const restore = templateApi.restore.useMutation({ onSuccess: () => { toast.success("Template restored"); query.refetch(); }, onError: (error) => toast.error(error.message) });
 
-  const { data: templates, refetch } = api.template.getAll.useQuery(undefined, {
-    enabled: !!session?.user,
-  });
+  if (status === "loading") return <div className="container mx-auto p-6">Loading…</div>;
+  if (status === "unauthenticated") return <div className="container mx-auto flex min-h-[400px] items-center justify-center p-6"><Card className="max-w-md"><CardContent className="space-y-4 pt-6 text-center"><LogIn className="mx-auto" /><h2 className="text-xl font-semibold">Sign in required</h2><p className="text-sm text-muted-foreground">Sign in to manage workout templates.</p><Button onClick={() => signIn()}>Sign in</Button></CardContent></Card></div>;
 
-  const deleteTemplateMutation = api.template.delete.useMutation({
-    onSuccess: () => {
-      toast.success("Template deleted successfully");
-      refetch();
-    },
-    onError: (error) => {
-      toast.error("Failed to delete template: " + error.message);
-    },
-  });
+  const byDay = (day: number) => templates.filter((item) => Number(item.dayNumber ?? item.day_number) === day);
+  const isArchived = (item: AnyRecord) => !!item.archivedAt || !!item.archived_at;
+  const act = (item: AnyRecord) => { const id = item.id; if (isArchived(item)) restore?.mutate({ id }); else archive?.mutate({ id }); };
 
-  const duplicateTemplateMutation = api.template.duplicate.useMutation({
-    onSuccess: () => {
-      toast.success("Template duplicated successfully");
-      refetch();
-    },
-    onError: (error) => {
-      toast.error("Failed to duplicate template: " + error.message);
-    },
-  });
-
-  const handleCreateSuccess = () => {
-    setIsCreateDialogOpen(false);
-    refetch();
-  };
-
-  const handleEditSuccess = () => {
-    setEditingTemplate(null);
-    refetch();
-  };
-
-  const handleDeleteTemplate = (templateId: string, templateName: string) => {
-    toast(`Delete "${templateName}"?`, {
-      description: "This action cannot be undone.",
-      action: {
-        label: "Delete",
-        onClick: () => deleteTemplateMutation.mutate({ id: templateId }),
-      },
-      cancel: {
-        label: "Cancel",
-        onClick: () => {},
-      },
-    });
-  };
-
-  const handleDuplicateTemplate = (
-    templateId: string,
-    templateName: string
-  ) => {
-    const targetDay = selectedDay === 7 ? 1 : selectedDay + 1;
-    duplicateTemplateMutation.mutate({
-      id: templateId,
-      newDayNumber: targetDay,
-      newName: `${templateName} (Copy)`,
-    });
-  };
-
-  const getTemplatesForDay = (dayNumber: number) => {
-    return (
-      templates?.filter((template) => template.dayNumber === dayNumber) || []
-    );
-  };
-
-  const getMuscleGroupColor = (muscleGroup: string) => {
-    const colors: Record<string, string> = {
-      chest: "bg-red-100 text-red-800",
-      back: "bg-blue-100 text-blue-800",
-      shoulders: "bg-yellow-100 text-yellow-800",
-      arms: "bg-purple-100 text-purple-800",
-      legs: "bg-green-100 text-green-800",
-      core: "bg-orange-100 text-orange-800",
-    };
-    return colors[muscleGroup] || "bg-gray-100 text-gray-800";
-  };
-
-  // Show loading state
-  if (status === "loading") {
-    return (
-      <div className="container mx-auto p-6">
-        <div className="flex items-center justify-center min-h-[400px]">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
-            <p className="text-muted-foreground">Loading...</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Show sign in prompt if not authenticated
-  if (status === "unauthenticated") {
-    return (
-      <div className="container mx-auto p-6">
-        <div className="flex items-center justify-center min-h-[400px]">
-          <Card className="w-full max-w-md">
-            <CardContent className="pt-6">
-              <div className="text-center space-y-4">
-                <LogIn className="h-12 w-12 mx-auto text-muted-foreground" />
-                <div>
-                  <h2 className="text-xl font-semibold">Sign In Required</h2>
-                  <p className="text-muted-foreground mt-2">
-                    You need to sign in to create and manage workout templates.
-                  </p>
-                </div>
-                <Button onClick={() => signIn()} className="w-full">
-                  <LogIn className="h-4 w-4 mr-2" />
-                  Sign In
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="container mx-auto p-6">
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h1 className="text-3xl font-bold">Workout Templates</h1>
-          <p className="text-muted-foreground">
-            Create and manage your weekly workout plans
-          </p>
-        </div>
-        <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="h-4 w-4 mr-2" />
-              Create Template
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Create New Template</DialogTitle>
-            </DialogHeader>
-            <CreateTemplateForm
-              selectedDay={selectedDay}
-              onSuccess={handleCreateSuccess}
-            />
-          </DialogContent>
-        </Dialog>
-      </div>
-
-      {/* Day Tabs */}
-      <Tabs
-        value={selectedDay.toString()}
-        onValueChange={(value) => setSelectedDay(parseInt(value))}
-      >
-        <TabsList className="grid w-full grid-cols-7">
-          {DAYS.map((day) => (
-            <TabsTrigger key={day.number} value={day.number.toString()}>
-              {day.name}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-
-        {DAYS.map((day) => (
-          <TabsContent
-            key={day.number}
-            value={day.number.toString()}
-            className="mt-6"
-          >
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h2 className="text-xl font-semibold">{day.name} Templates</h2>
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Calendar className="h-4 w-4" />
-                  {getTemplatesForDay(day.number).length} template(s)
-                </div>
-              </div>
-
-              {getTemplatesForDay(day.number).length > 0 ? (
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                  {getTemplatesForDay(day.number).map((template) => (
-                    <Card
-                      key={template.id}
-                      className="hover:shadow-md transition-shadow"
-                    >
-                      <CardHeader className="pb-3">
-                        <div className="flex justify-between items-start">
-                          <div>
-                            <CardTitle className="text-lg">
-                              {template.name}
-                            </CardTitle>
-                            <div className="flex items-center gap-2 mt-1">
-                              <Badge variant="outline">{day.name}</Badge>
-                              <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                                <Dumbbell className="h-3 w-3" />
-                                {template.template_exercises?.length || 0}{" "}
-                                exercises
-                              </div>
-                            </div>
-                          </div>
-                          <div className="flex gap-1">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => setEditingTemplate(template.id)}
-                            >
-                              <Edit className="h-3 w-3" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() =>
-                                handleDuplicateTemplate(
-                                  template.id,
-                                  template.name
-                                )
-                              }
-                              disabled={duplicateTemplateMutation.isPending}
-                            >
-                              <Copy className="h-3 w-3" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() =>
-                                handleDeleteTemplate(template.id, template.name)
-                              }
-                              disabled={deleteTemplateMutation.isPending}
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        </div>
-                      </CardHeader>
-                      <CardContent className="pt-0">
-                        <div className="space-y-3">
-                          <div className="flex items-center justify-between text-sm text-muted-foreground">
-                            <div className="flex items-center gap-1">
-                              <Target className="h-3 w-3" />
-                              {template.template_exercises?.reduce(
-                                (sum, te) => sum + te.sets,
-                                0
-                              ) || 0}{" "}
-                              sets
-                            </div>
-                            <div className="flex items-center gap-1">
-                              <Clock className="h-3 w-3" />~
-                              {(template.template_exercises?.length || 0) * 3 +
-                                (template.template_exercises?.reduce(
-                                  (sum, te) => sum + te.sets,
-                                  0
-                                ) || 0) *
-                                  2}{" "}
-                              min
-                            </div>
-                          </div>
-
-                          <div className="space-y-2">
-                            {template.template_exercises
-                              ?.slice(0, 3)
-                              .map((te, index) => (
-                                <div
-                                  key={index}
-                                  className="flex items-center justify-between text-xs"
-                                >
-                                  <div className="flex items-center gap-2">
-                                    <Badge
-                                      variant="secondary"
-                                      className={`text-xs ${getMuscleGroupColor(
-                                        te.exercise?.muscleGroup || ""
-                                      )}`}
-                                    >
-                                      {te.exercise?.muscleGroup}
-                                    </Badge>
-                                    <span className="font-medium">
-                                      {te.exercise?.name}
-                                    </span>
-                                  </div>
-                                  <span className="text-muted-foreground">
-                                    {te.sets} × {te.repsMin}-{te.repsMax}
-                                  </span>
-                                </div>
-                              ))}
-                            {(template.template_exercises?.length || 0) > 3 && (
-                              <div className="text-xs text-muted-foreground text-center">
-                                +
-                                {(template.template_exercises?.length || 0) - 3}{" "}
-                                more exercises
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              ) : (
-                <Card className="border-dashed">
-                  <CardContent className="p-8 text-center">
-                    <Dumbbell className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                    <h3 className="font-semibold mb-2">
-                      No Templates for {day.name}
-                    </h3>
-                    <p className="text-muted-foreground mb-4">
-                      Create your first template for this day to get started.
-                    </p>
-                    <Button
-                      variant="outline"
-                      onClick={() => setIsCreateDialogOpen(true)}
-                    >
-                      <Plus className="h-4 w-4 mr-2" />
-                      Create Template
-                    </Button>
-                  </CardContent>
-                </Card>
-              )}
-            </div>
-          </TabsContent>
-        ))}
-      </Tabs>
-
-      {/* Edit Template Dialog */}
-      {editingTemplate && (
-        <Dialog
-          open={!!editingTemplate}
-          onOpenChange={() => setEditingTemplate(null)}
-        >
-          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Edit Template</DialogTitle>
-            </DialogHeader>
-            <EditTemplateForm
-              templateId={editingTemplate}
-              onSuccess={handleEditSuccess}
-            />
-          </DialogContent>
-        </Dialog>
-      )}
-    </div>
-  );
+  return <main className="container mx-auto space-y-6 p-4 sm:p-6">
+    <header className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center"><div><h1 className="text-3xl font-bold">Workout templates</h1><p className="text-muted-foreground">Set your Reps and Duration exercise targets.</p></div><Dialog open={createOpen} onOpenChange={setCreateOpen}><DialogTrigger asChild><Button><Plus className="h-4 w-4" />Create template</Button></DialogTrigger><DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto"><DialogHeader><DialogTitle>Create template</DialogTitle></DialogHeader><CreateTemplateForm selectedDay={selectedDay} onSuccess={() => { setCreateOpen(false); query.refetch(); }} /></DialogContent></Dialog></header>
+    <Tabs value={String(selectedDay)} onValueChange={(value) => setSelectedDay(Number(value))}><TabsList className="grid w-full grid-cols-7">{Array.from({ length: 7 }, (_, i) => <TabsTrigger key={i + 1} value={String(i + 1)}>Day {i + 1}</TabsTrigger>)}</TabsList>{Array.from({ length: 7 }, (_, i) => i + 1).map((day) => <TabsContent key={day} value={String(day)} className="mt-5"><div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">{byDay(day).map((template) => { const rows = template.template_exercises ?? template.templateExercises ?? []; const archived = isArchived(template); return <Card key={template.id} className={archived ? "opacity-70" : ""}><CardHeader><div className="flex items-start justify-between gap-2"><div><CardTitle>{template.name}</CardTitle><div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground"><Badge variant="outline">Day {day}</Badge><span>{rows.length} exercises</span>{archived && <Badge variant="secondary">Archived</Badge>}</div></div><div className="flex gap-1">{!archived && <Button variant="ghost" size="icon" onClick={() => setEditingId(template.id)} aria-label="Edit"><Edit className="h-4 w-4" /></Button>}{!archived && <Button variant="ghost" size="icon" onClick={() => duplicate.mutate({ id: template.id, newDayNumber: day === 7 ? 1 : day + 1, newName: `${template.name} (Copy)` })} aria-label="Duplicate"><Copy className="h-4 w-4" /></Button>}{(archive || restore) && <Button variant="ghost" size="icon" onClick={() => act(template)} aria-label={archived ? "Restore" : "Archive"}>{archived ? <RotateCcw className="h-4 w-4" /> : <Archive className="h-4 w-4" />}</Button>}</div></div></CardHeader><CardContent className="space-y-3"><div className="flex items-center justify-between text-sm text-muted-foreground"><span className="inline-flex items-center gap-1"><Dumbbell className="h-3 w-3" />{rows.reduce((sum: number, row: AnyRecord) => sum + Number(row.sets ?? 0), 0)} sets</span><span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" />{rows.reduce((sum: number, row: AnyRecord) => sum + Number(row.sets ?? 0) * Number(row.restTimeSeconds ?? row.rest_time_seconds ?? 120), 0)} sec rest</span></div>{rows.slice(0, 4).map((row: AnyRecord, index: number) => <div key={row.id ?? index} className="flex items-center justify-between text-xs"><span>{row.exercise?.name ?? row.exercises?.name ?? "Exercise"}</span><Badge variant="outline">{row.mode === "Duration" ? `${row.targetSeconds ?? row.target_seconds ?? "—"} sec` : `${row.repsMin ?? row.reps_min ?? "—"}-${row.repsMax ?? row.reps_max ?? "—"} reps`}</Badge></div>)}</CardContent></Card>; })}</div>{byDay(day).length === 0 && <Card className="border-dashed"><CardContent className="p-8 text-center text-sm text-muted-foreground">No templates for Day {day}.</CardContent></Card>}</TabsContent>)}</Tabs>
+    {editingId && <Dialog open onOpenChange={() => setEditingId(null)}><DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto"><DialogHeader><DialogTitle>Edit template</DialogTitle></DialogHeader><EditTemplateForm templateId={editingId} onSuccess={() => { setEditingId(null); query.refetch(); }} /></DialogContent></Dialog>}
+  </main>;
 }

@@ -1,4 +1,39 @@
 import { z } from "zod";
+import {
+  CommandEnvelopeSchema,
+  ControllerStateEnum,
+  DurationSetResultSchema,
+  ExerciseModeEnum,
+  RepSetResultSchema,
+  RestStatusEnum,
+  SetResultSchema,
+  SetStatusEnum,
+  SyncErrorCodeEnum,
+  SyncErrorSchema,
+  TemplateOccurrenceSchema,
+  WorkoutCommandEnvelopeSchema,
+  WorkoutModeEnum,
+  WorkoutSetStateSchema,
+  WorkoutStatusEnum,
+} from "@/lib/workouts/contracts";
+
+export {
+  CommandEnvelopeSchema,
+  ControllerStateEnum,
+  DurationSetResultSchema,
+  ExerciseModeEnum,
+  RepSetResultSchema,
+  RestStatusEnum,
+  SetResultSchema,
+  SetStatusEnum,
+  SyncErrorCodeEnum,
+  SyncErrorSchema,
+  TemplateOccurrenceSchema,
+  WorkoutCommandEnvelopeSchema,
+  WorkoutModeEnum,
+  WorkoutSetStateSchema,
+  WorkoutStatusEnum,
+};
 
 // Muscle Groups
 export const MuscleGroupEnum = z.enum([
@@ -30,22 +65,76 @@ export const CreateExerciseSchema = z.object({
 });
 
 // Template Schemas
-export const TemplateExerciseSchema = z.object({
+const TemplateExerciseSchemaBase = z.object({
   id: z.string().uuid(),
   templateId: z.string().uuid(),
   exerciseId: z.string().uuid(),
   orderIndex: z.number().min(0),
   sets: z.number().min(1).max(20),
-  repsMin: z.number().min(1).max(100),
-  repsMax: z.number().min(1).max(100),
-  rpeTarget: z.number().min(6).max(10).optional(),
-  restTimeSeconds: z.number().min(10).max(600).default(120),
+  repsMin: z.number().int().min(1).max(100).nullable().optional(),
+  repsMax: z.number().int().min(1).max(100).nullable().optional(),
+  targetSeconds: z.number().int().min(1).max(3600).nullable().optional(),
+  mode: WorkoutModeEnum.default("Reps"),
+  rpeTarget: z.number().int().min(6).max(10).nullable().optional(),
+  restTimeSeconds: z.number().int().min(0).max(3600).default(120),
 });
 
-export const CreateTemplateExerciseSchema = TemplateExerciseSchema.omit({
+const validateTemplateExerciseTargets = (
+  value: {
+    mode: "Reps" | "Duration";
+    repsMin?: number | null;
+    repsMax?: number | null;
+    targetSeconds?: number | null;
+  },
+  ctx: z.RefinementCtx
+) => {
+  if (value.mode === "Reps") {
+    if (value.repsMin == null || value.repsMax == null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["repsMin"],
+        message: "Rep mode requires rep targets",
+      });
+    } else if (value.repsMin > value.repsMax) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["repsMax"],
+        message: "repsMax must be at least repsMin",
+      });
+    }
+    if (value.targetSeconds != null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["targetSeconds"],
+        message: "Rep mode cannot set targetSeconds",
+      });
+    }
+  } else {
+    if (value.targetSeconds == null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["targetSeconds"],
+        message: "Duration mode requires targetSeconds",
+      });
+    }
+    if (value.repsMin != null || value.repsMax != null) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["repsMin"],
+        message: "Duration mode cannot set rep targets",
+      });
+    }
+  }
+};
+
+export const TemplateExerciseSchema = TemplateExerciseSchemaBase.superRefine(
+  validateTemplateExerciseTargets
+);
+
+export const CreateTemplateExerciseSchema = TemplateExerciseSchemaBase.omit({
   id: true,
   templateId: true,
-});
+}).superRefine(validateTemplateExerciseTargets);
 
 export const WorkoutTemplateSchema = z.object({
   id: z.string().uuid(),
@@ -67,22 +156,47 @@ export const CreateWorkoutTemplateSchema = WorkoutTemplateSchema.omit({
 });
 
 // Session Schemas
-export const SessionSetSchema = z.object({
+const SessionSetSchemaBase = z.object({
   id: z.string().uuid(),
   sessionExerciseId: z.string().uuid(),
   setNumber: z.number().min(1),
-  weight: z.number().positive().max(1000),
-  reps: z.number().min(1).max(100),
-  rpe: z.number().min(6).max(10).optional(),
+  weight: z.number().min(0).max(1000),
+  reps: z.number().int().min(1).max(100),
+  mode: WorkoutModeEnum.default("Reps"),
+  status: SetStatusEnum.default("Pending"),
+  externalLoadKg: z.coerce.number().min(0).max(1000).default(0),
+  actualReps: z.number().int().min(1).max(100).nullable().optional(),
+  actualSeconds: z.number().int().min(1).max(3600).nullable().optional(),
+  rpe: z.number().int().min(6).max(10).nullable().optional(),
+  completedAt: z.string().datetime().or(z.date()).nullable().optional(),
   completed: z.boolean().default(false),
 });
 
-export const CreateSessionSetSchema = SessionSetSchema.omit({
+export const SessionSetSchema = SessionSetSchemaBase.superRefine((value, ctx) => {
+  if (value.status === "Completed") {
+    if (value.mode === "Reps" && value.actualReps == null) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["actualReps"], message: "Completed Rep set requires actualReps" });
+    }
+    if (value.mode === "Duration" && value.actualSeconds == null) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["actualSeconds"], message: "Completed Duration set requires actualSeconds" });
+    }
+  } else if (value.actualReps != null || value.actualSeconds != null) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["status"], message: "Pending and Skipped sets cannot carry a result" });
+  }
+  if (value.mode === "Reps" && value.actualSeconds != null) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["actualSeconds"], message: "Rep set cannot carry actualSeconds" });
+  }
+  if (value.mode === "Duration" && value.actualReps != null) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["actualReps"], message: "Duration set cannot carry actualReps" });
+  }
+});
+
+export const CreateSessionSetSchema = SessionSetSchemaBase.omit({
   id: true,
   sessionExerciseId: true,
 });
 
-export const UpdateSessionSetSchema = SessionSetSchema.partial().extend({
+export const UpdateSessionSetSchema = SessionSetSchemaBase.partial().extend({
   id: z.string().uuid(),
 });
 
@@ -90,7 +204,16 @@ export const SessionExerciseSchema = z.object({
   id: z.string().uuid(),
   sessionId: z.string().uuid(),
   exerciseId: z.string().uuid(),
+  templateExerciseId: z.string().uuid().nullable().optional(),
+  exerciseName: z.string().min(1).max(100).nullable().optional(),
   orderIndex: z.number().min(0),
+  setCount: z.number().int().min(1).max(20).optional(),
+  mode: WorkoutModeEnum.default("Reps"),
+  repsMin: z.number().int().min(1).max(100).nullable().optional(),
+  repsMax: z.number().int().min(1).max(100).nullable().optional(),
+  targetSeconds: z.number().int().min(1).max(3600).nullable().optional(),
+  rpeTarget: z.number().int().min(6).max(10).nullable().optional(),
+  restTimeSeconds: z.number().int().min(0).max(3600).optional(),
   sets: z.array(SessionSetSchema).optional(),
 });
 
@@ -98,6 +221,12 @@ export const WorkoutSessionSchema = z.object({
   id: z.string().uuid(),
   userId: z.string().uuid(),
   templateId: z.string().uuid(),
+  status: WorkoutStatusEnum.default("Active"),
+  revision: z.number().int().nonnegative().default(0),
+  controllerEpoch: z.number().int().positive().default(1),
+  controllerDeviceId: z.string().uuid().nullable().optional(),
+  templateName: z.string().max(50).nullable().optional(),
+  templateDayNumber: z.number().int().min(1).max(7).nullable().optional(),
   startTime: z.string().datetime().or(z.date()),
   endTime: z.string().datetime().or(z.date()).optional(),
   durationMinutes: z.number().positive().optional(),
@@ -170,3 +299,9 @@ export type ExerciseFilter = z.infer<typeof ExerciseFilterSchema>;
 export type ProgressQuery = z.infer<typeof ProgressQuerySchema>;
 export type MuscleGroup = z.infer<typeof MuscleGroupEnum>;
 export type WeightUnit = z.infer<typeof WeightUnitEnum>;
+export type WorkoutStatus = z.infer<typeof WorkoutStatusEnum>;
+export type SetStatus = z.infer<typeof SetStatusEnum>;
+export type WorkoutMode = z.infer<typeof WorkoutModeEnum>;
+export type SetResult = z.infer<typeof SetResultSchema>;
+export type CommandEnvelope = z.infer<typeof CommandEnvelopeSchema>;
+export type SyncError = z.infer<typeof SyncErrorSchema>;

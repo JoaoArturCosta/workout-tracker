@@ -1,356 +1,87 @@
 "use client";
 
-import { useState, useEffect, use } from "react";
-import { useRouter } from "next/navigation";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import {
-  Square,
-  Clock,
-  Target,
-  CheckCircle2,
-  Circle,
-  Timer,
-  Save,
-} from "lucide-react";
+import { use, useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/trpc";
-import type { SessionSet } from "@/lib/types";
-import { toast } from "sonner";
-import { LiveSetLogger } from "@/components/sessions/live-set-logger";
-import { SessionTimer } from "@/components/sessions/session-timer";
+import type { SessionWithExercises } from "@/lib/types";
+import type { SetResult } from "@/lib/workouts/contracts";
+import { getDeviceId } from "@/lib/offline-workouts/db";
+import { applyOptimisticWorkoutCommand } from "@/lib/offline-workouts/optimistic";
+import { useActiveWorkout } from "@/hooks/use-active-workout";
+import type { OfflineWorkoutSnapshot, OutboxEntry, SyncResponse } from "@/lib/offline-workouts/models";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { WorkoutHeader } from "@/components/sessions/workout-header";
+import { WorkoutChecklist, type ChecklistExercise } from "@/components/sessions/workout-checklist";
+import { SetResultEditor } from "@/components/sessions/set-result-editor";
+import { WorkoutActions } from "@/components/sessions/workout-actions";
+import { RestTimer } from "@/components/sessions/rest-timer";
+import { DurationSetTimer } from "@/components/sessions/duration-set-timer";
 import { PreviousSessionValues } from "@/components/sessions/previous-session-values";
+import { ControllerControls } from "@/components/sessions/controller-controls";
+import { SyncConflictDialog } from "@/components/sessions/sync-conflict-dialog";
+import { SyncStatus } from "@/components/sessions/sync-status";
+import { WorkoutAlertSetup } from "@/components/push/workout-alert-setup";
+import { toast } from "sonner";
 
-interface SessionPageProps {
-  params: Promise<{
-    sessionId: string;
-  }>;
+interface SessionPageProps { params: Promise<{ sessionId: string }> }
+function resultFromSet(set: SessionWithExercises["occurrences"][number]["sets"][number]): SetResult | null {
+  return set.mode === "Duration"
+    ? set.actualSeconds == null ? null : { mode: "Duration", externalLoadKg: set.externalLoadKg, actualSeconds: set.actualSeconds, actualReps: null, rpe: set.rpe }
+    : set.actualReps == null ? null : { mode: "Reps", externalLoadKg: set.externalLoadKg, actualReps: set.actualReps, actualSeconds: null, rpe: set.rpe };
 }
 
 export default function SessionPage({ params }: SessionPageProps) {
-  const resolvedParams = use(params);
-  const router = useRouter();
-  const [currentExerciseIndex, setCurrentExerciseIndex] = useState(0);
-  const [restTimer, setRestTimer] = useState(0);
-  const [isResting, setIsResting] = useState(false);
+  const { sessionId } = use(params);
+  const query = api.session.getById.useQuery({ sessionId });
+  const session = query.data as SessionWithExercises | undefined;
+  const commandMutation = api.session.command.useMutation({ onError: (error) => toast.error(error.message) });
+  const [selectedSetId, setSelectedSetId] = useState<string | null>(null);
+  const [deviceId, setDeviceId] = useState<string | null>(null);
+  const [durationSeconds, setDurationSeconds] = useState<number | null>(null);
+  useEffect(() => { let cancelled = false; void getDeviceId().then((id) => { if (!cancelled) setDeviceId(id); }).catch((error: Error) => toast.error(error.message)); return () => { cancelled = true; }; }, []);
+  const controllerQuery = api.device.getControllerState.useQuery({ sessionId, deviceId: deviceId ?? "00000000-0000-0000-0000-000000000000" }, { enabled: !!deviceId });
+  const handoffMutation = api.device.handoff.useMutation({ onSuccess: () => { toast.success("Controller handed off"); void controllerQuery.refetch(); }, onError: (error) => toast.error(error.message) });
+  const replaceMutation = api.device.replaceLostDevice.useMutation({ onSuccess: () => { toast.success("This device now controls the workout"); void controllerQuery.refetch(); void query.refetch(); }, onError: (error) => toast.error(error.message) });
 
-  const { data: session, refetch } =
-    api.session.getSessionWithExercises.useQuery({
-      sessionId: resolvedParams.sessionId,
-    });
+  const initialSnapshot = useMemo<OfflineWorkoutSnapshot<SessionWithExercises> | null>(() => session && deviceId ? { sessionId, revision: session.revision, controllerEpoch: session.controllerEpoch, controllerDeviceId: session.controllerDeviceId ?? deviceId, status: session.status, data: session, updatedAt: Date.now() } : null, [deviceId, session, sessionId]);
+  const sendQueuedCommand = useCallback(async (entry: OutboxEntry): Promise<SyncResponse<SessionWithExercises>> => {
+    const response = await commandMutation.mutateAsync(entry.envelope);
+    const refreshed = await query.refetch();
+    const next = refreshed.data as SessionWithExercises | undefined;
+    return { revision: response.result.revision, snapshot: next && { sessionId, revision: response.result.revision, controllerEpoch: response.result.controllerEpoch, controllerDeviceId: entry.envelope.deviceId, status: response.result.status, data: next, updatedAt: Date.now() } };
+  }, [commandMutation, query, sessionId]);
+  const active = useActiveWorkout<SessionWithExercises>({ sessionId, initialSnapshot, sendCommand: sendQueuedCommand, optimisticUpdate: applyOptimisticWorkoutCommand });
+  const workout = active.snapshot?.data ?? session;
+  const status = active.snapshot?.status ?? workout?.status;
+  const readOnly = active.isReadOnly || status !== "Active" || !controllerQuery.data || controllerQuery.data.controllerState === "ReadOnly";
+  const exercises = useMemo<ChecklistExercise[]>(() => workout?.occurrences.map((occurrence) => ({ id: occurrence.id, exerciseName: occurrence.exerciseName, mode: occurrence.mode, repsMin: occurrence.repsMin, repsMax: occurrence.repsMax, targetSeconds: occurrence.targetSeconds, sets: occurrence.sets.map((set) => ({ id: set.id, setNumber: set.setNumber, status: set.status, actualReps: set.actualReps, actualSeconds: set.actualSeconds, externalLoadKg: set.externalLoadKg })) })) ?? [], [workout]);
+  const flatSets = exercises.flatMap((exercise) => exercise.sets.map((set) => ({ exercise, set })));
+  const current = flatSets.find(({ set }) => set.status === "Pending");
+  const selected = flatSets.find(({ set }) => set.id === selectedSetId) ?? current;
+  const selectedOccurrence = workout?.occurrences.find((occurrence) => occurrence.id === selected?.exercise.id);
+  const allSets = flatSets.length;
+  const completedSets = flatSets.filter(({ set }) => set.status === "Completed").length;
+  const rest = workout?.rest;
 
-  const completeSessionMutation = api.session.complete.useMutation({
-    onSuccess: () => {
-      toast.success("Workout completed! Great job! 🎉");
-      router.push("/sessions");
-    },
-    onError: (error) => {
-      toast.error("Failed to complete session: " + error.message);
-    },
-  });
+  if (!workout) return <div className="container mx-auto p-6"><p>Loading workout…</p></div>;
 
-  // Rest timer effect
-  useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (isResting && restTimer > 0) {
-      interval = setInterval(() => {
-        setRestTimer((prev) => {
-          if (prev <= 1) {
-            setIsResting(false);
-            toast.success("Rest period finished!");
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    }
-    return () => clearInterval(interval);
-  }, [isResting, restTimer]);
-
-  const handleCompleteSession = async () => {
-    try {
-      await completeSessionMutation.mutateAsync({
-        sessionId: resolvedParams.sessionId,
-      });
-    } catch (error) {
-      console.error("Failed to complete session:", error);
-    }
+  const completeSet = (setId: string, result: SetResult) => {
+    const finalSet = flatSets.filter(({ set }) => set.status === "Pending").length === 1;
+    if (finalSet && !window.confirm("Finish this workout?")) return;
+    if (finalSet) return active.finish({ type: "Finish", sessionSetId: setId, result });
+    return active.completeSet({ type: "CompleteSet", sessionSetId: setId, result });
   };
+  const finishWorkout = () => { const last = [...flatSets].reverse().find(({ set }) => set.status === "Completed"); const source = last && workout.occurrences.flatMap((occurrence) => occurrence.sets).find((set) => set.id === last.set.id); const result = source && resultFromSet(source); if (source && result) void active.finish({ type: "Finish", sessionSetId: source.id, result }); };
 
-  const handleEndWorkout = () => {
-    toast("End workout session?", {
-      description: "Your progress will be saved.",
-      action: {
-        label: "End Session",
-        onClick: () => handleCompleteSession(),
-      },
-      cancel: {
-        label: "Continue",
-        onClick: () => {},
-      },
-    });
-  };
-
-  const startRestTimer = (seconds: number = 120) => {
-    setRestTimer(seconds);
-    setIsResting(true);
-    toast.success(
-      `Rest timer started: ${Math.floor(seconds / 60)}:${(seconds % 60)
-        .toString()
-        .padStart(2, "0")}`
-    );
-  };
-
-  const stopRestTimer = () => {
-    setIsResting(false);
-    setRestTimer(0);
-    toast.info("Rest timer stopped");
-  };
-
-  const formatRestTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, "0")}`;
-  };
-
-  if (!session) {
-    return (
-      <div className="container mx-auto p-6">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold">Loading session...</h1>
-        </div>
-      </div>
-    );
-  }
-
-  const exercises =
-    session.session_exercises?.sort((a, b) => a.orderIndex - b.orderIndex) ||
-    [];
-  const currentExercise = exercises[currentExerciseIndex];
-  const totalExercises = exercises.length;
-  const completedSets = exercises.reduce(
-    (total, ex) =>
-      total + (ex.sets?.filter((set: SessionSet) => set.completed).length || 0),
-    0
-  );
-  const totalSets = exercises.reduce(
-    (total, ex) => total + (ex.sets?.length || 0),
-    0
-  );
-
-  const getMuscleGroupColor = (muscleGroup: string) => {
-    const colors: Record<string, string> = {
-      chest: "bg-red-100 text-red-800",
-      back: "bg-blue-100 text-blue-800",
-      shoulders: "bg-yellow-100 text-yellow-800",
-      arms: "bg-purple-100 text-purple-800",
-      legs: "bg-green-100 text-green-800",
-      core: "bg-orange-100 text-orange-800",
-    };
-    return colors[muscleGroup] || "bg-gray-100 text-gray-800";
-  };
-
-  return (
-    <div className="container mx-auto p-6 max-w-4xl">
-      {/* Header */}
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h1 className="text-2xl font-bold">
-            {session.workout_templates?.name}
-          </h1>
-          <div className="flex items-center gap-4 text-sm text-muted-foreground">
-            <div className="flex items-center gap-1">
-              <Target className="h-4 w-4" />
-              {completedSets}/{totalSets} sets
-            </div>
-            <div className="flex items-center gap-1">
-              <Clock className="h-4 w-4" />
-              Exercise {currentExerciseIndex + 1}/{totalExercises}
-            </div>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <SessionTimer startTime={session.start_time} />
-          <Button variant="outline" size="sm" onClick={handleEndWorkout}>
-            <Square className="h-4 w-4 mr-1" />
-            End
-          </Button>
-        </div>
-      </div>
-
-      {/* Rest Timer */}
-      {isResting && (
-        <Card className="mb-6 border-blue-200 bg-blue-50">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <Timer className="h-5 w-5 text-blue-600" />
-                <div>
-                  <h3 className="font-semibold">Rest Period</h3>
-                  <p className="text-sm text-muted-foreground">
-                    Time remaining: {formatRestTime(restTimer)}
-                  </p>
-                </div>
-              </div>
-              <Button variant="outline" onClick={stopRestTimer}>
-                Skip Rest
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Main Exercise Area */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* Current Exercise */}
-          {currentExercise && (
-            <Card>
-              <CardHeader>
-                <div className="flex justify-between items-start">
-                  <div>
-                    <CardTitle className="text-xl">
-                      {currentExercise.exercises?.name}
-                    </CardTitle>
-                    <div className="flex items-center gap-2 mt-2">
-                      <Badge
-                        variant="secondary"
-                        className={getMuscleGroupColor(
-                          currentExercise.exercises?.muscleGroup || ""
-                        )}
-                      >
-                        {currentExercise.exercises?.muscleGroup}
-                      </Badge>
-                      {currentExercise.exercises?.equipment && (
-                        <Badge variant="outline">
-                          {currentExercise.exercises.equipment}
-                        </Badge>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={currentExerciseIndex === 0}
-                      onClick={() =>
-                        setCurrentExerciseIndex((prev) => Math.max(0, prev - 1))
-                      }
-                    >
-                      Previous
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={currentExerciseIndex === totalExercises - 1}
-                      onClick={() =>
-                        setCurrentExerciseIndex((prev) =>
-                          Math.min(totalExercises - 1, prev + 1)
-                        )
-                      }
-                    >
-                      Next
-                    </Button>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <LiveSetLogger
-                  sessionExercise={currentExercise}
-                  onSetComplete={() => {
-                    refetch();
-                    // Use the rest time from template exercise, fallback to 120 seconds
-                    const restTime =
-                      currentExercise.templateExercise?.restTimeSeconds || 120;
-                    startRestTimer(restTime);
-                  }}
-                />
-              </CardContent>
-            </Card>
-          )}
-        </div>
-
-        {/* Sidebar */}
-        <div className="space-y-6">
-          {/* Exercise List */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Exercises</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              {exercises.map((exercise, index) => {
-                const completedSetsCount =
-                  exercise.sets?.filter((set: SessionSet) => set.completed)
-                    .length || 0;
-                const totalSetsCount = exercise.sets?.length || 0;
-                const isCompleted =
-                  completedSetsCount === totalSetsCount && totalSetsCount > 0;
-                const isCurrent = index === currentExerciseIndex;
-
-                return (
-                  <div
-                    key={exercise.id}
-                    className={`p-3 rounded-lg border cursor-pointer transition-colors ${
-                      isCurrent
-                        ? "border-primary bg-primary/5"
-                        : isCompleted
-                        ? "border-green-200 bg-green-50"
-                        : "border-gray-200"
-                    }`}
-                    onClick={() => setCurrentExerciseIndex(index)}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        {isCompleted ? (
-                          <CheckCircle2 className="h-4 w-4 text-green-600" />
-                        ) : (
-                          <Circle className="h-4 w-4 text-gray-400" />
-                        )}
-                        <span
-                          className={`text-sm font-medium ${
-                            isCurrent ? "text-primary" : ""
-                          }`}
-                        >
-                          {exercise.exercises?.name}
-                        </span>
-                      </div>
-                      <span className="text-xs text-muted-foreground">
-                        {completedSetsCount}/{totalSetsCount}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-            </CardContent>
-          </Card>
-
-          {/* Previous Session Values */}
-          {currentExercise && (
-            <PreviousSessionValues exerciseId={currentExercise.exerciseId} />
-          )}
-        </div>
-      </div>
-
-      {/* Complete Session Button */}
-      {completedSets === totalSets && totalSets > 0 && (
-        <Card className="mt-6 border-green-200 bg-green-50">
-          <CardContent className="p-4 text-center">
-            <h3 className="font-semibold text-green-800 mb-2">
-              Workout Complete! 🎉
-            </h3>
-            <p className="text-sm text-green-700 mb-4">
-              You&apos;ve completed all exercises. Great job!
-            </p>
-            <Button
-              onClick={handleCompleteSession}
-              className="bg-green-600 hover:bg-green-700"
-            >
-              <Save className="h-4 w-4 mr-2" />
-              Complete Session
-            </Button>
-          </CardContent>
-        </Card>
-      )}
-    </div>
-  );
+  return <main className="container mx-auto max-w-3xl space-y-5 p-4 sm:p-6">
+    <WorkoutHeader name={workout.templateName} status={status ?? workout.status} completedSets={completedSets} totalSets={allSets} startedAt={String(workout.startTime)} onEnd={readOnly ? undefined : () => void active.end()} />
+    <SyncStatus state={active.syncState} pendingCount={active.outbox.length} errorMessage={active.error?.message} />
+    {deviceId && <ControllerControls controllerState={controllerQuery.data?.controllerState ?? "ReadOnly"} controllerDeviceId={controllerQuery.data?.controllerDeviceId ?? workout.controllerDeviceId} controllerEpoch={controllerQuery.data?.controllerEpoch ?? workout.controllerEpoch} acknowledgedRevision={controllerQuery.data?.revision ?? workout.revision} pendingOperationCount={active.outbox.length} disabled={handoffMutation.isPending || replaceMutation.isPending} onHandoff={(nextDeviceId) => handoffMutation.mutate({ sessionId, currentDeviceId: deviceId, nextDeviceId, controllerEpoch: controllerQuery.data?.controllerEpoch ?? workout.controllerEpoch, acknowledgedRevision: controllerQuery.data?.revision ?? workout.revision, pendingOperationCount: active.outbox.length })} onReplaceLostDevice={() => { if (window.confirm("Replace the lost controller? Unsynced changes may be lost.")) replaceMutation.mutate({ sessionId, nextDeviceId: deviceId, controllerEpoch: controllerQuery.data?.controllerEpoch ?? workout.controllerEpoch, confirmUnsyncedDataLoss: true }); }} />}
+    {!readOnly && deviceId && <WorkoutAlertSetup deviceId={deviceId} />}
+    {!readOnly && <WorkoutActions canSkip={!!current} canUndo={completedSets > 0} canFinish={completedSets === allSets && allSets > 0} onSkip={() => current && void active.skipSet({ type: "SkipSet", sessionSetId: current.set.id })} onUndo={() => { const last = [...flatSets].reverse().find(({ set }) => set.status === "Completed"); if (last) void active.undoSet({ type: "Undo", sessionSetId: last.set.id }); }} onFinish={finishWorkout} onEnd={() => void active.end()} onDiscard={() => void active.discard()} />}
+    {rest && !readOnly && <RestTimer startedAt={rest.startedAt} dueAt={rest.dueAt} onSkip={() => void active.queueCommand({ type: "SkipRest" })} />}
+    <Card><CardHeader><CardTitle>Set checklist</CardTitle></CardHeader><CardContent><WorkoutChecklist exercises={exercises} readOnly={readOnly} onCompleteSet={setSelectedSetId} /></CardContent></Card>
+    {selected && !readOnly && <Card><CardHeader><CardTitle>{selected.exercise.exerciseName} · Set {selected.set.setNumber}</CardTitle></CardHeader><CardContent className="space-y-3">{selected.exercise.mode === "Duration" && selected.set.id === current?.set.id && <DurationSetTimer targetSeconds={selected.exercise.targetSeconds ?? 1} onStop={setDurationSeconds} />}<SetResultEditor mode={selected.exercise.mode} repsMin={selected.exercise.repsMin} repsMax={selected.exercise.repsMax} targetSeconds={selected.exercise.targetSeconds} externalLoadKg={selected.set.externalLoadKg} actualReps={selected.set.actualReps} actualSeconds={durationSeconds ?? selected.set.actualSeconds} onSave={(result) => { const normalized: SetResult = selected.exercise.mode === "Duration" ? { mode: "Duration", externalLoadKg: result.externalLoadKg, actualSeconds: durationSeconds ?? result.actualSeconds ?? 1, actualReps: null, rpe: result.rpe } : { mode: "Reps", externalLoadKg: result.externalLoadKg, actualReps: result.actualReps ?? 1, actualSeconds: null, rpe: result.rpe }; void completeSet(selected.set.id, normalized); }} onClear={() => { setSelectedSetId(null); setDurationSeconds(null); }} /></CardContent></Card>}
+    {selectedOccurrence && selected && <PreviousSessionValues exerciseId={selectedOccurrence.exerciseId} mode={selectedOccurrence.mode} setNumber={selected.set.setNumber} />}
+    {active.syncState === "sync-conflicted" && active.snapshot && initialSnapshot && <SyncConflictDialog sessionId={sessionId} snapshot={active.snapshot} serverSnapshot={initialSnapshot} onResolved={async () => { await active.refresh(); await query.refetch(); }} />}
+  </main>;
 }

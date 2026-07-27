@@ -167,8 +167,8 @@ export default function HomePage() {
   const averageSessionDuration = weeklyStats?.length
     ? Math.round(
         weeklyStats.reduce(
-          (sum: number, session: { duration_minutes: number | null }) =>
-            sum + (session.duration_minutes || 0),
+          (sum: number, session: { durationMinutes: number | null }) =>
+            sum + (session.durationMinutes || 0),
           0
         ) / weeklyStats.length
       )
@@ -402,20 +402,20 @@ export default function HomePage() {
                 >
                   <div>
                     <div className="font-medium">
-                      {session.workout_templates?.name ||
-                        `Day ${session.workout_templates?.dayNumber}`}
+                    {session.templateName ||
+                      `Day ${session.templateDayNumber ?? "—"}`}
                     </div>
                     <div className="text-sm text-muted-foreground">
-                      {session.start_time &&
-                        new Date(session.start_time).toLocaleDateString()}
+                      {session.startTime &&
+                        new Date(session.startTime).toLocaleDateString()}
                     </div>
                   </div>
                   <div className="text-right">
                     <div className="font-bold">
-                      {session.duration_minutes || 0}min
+                      {session.durationMinutes || 0}min
                     </div>
                     <div className="text-sm text-muted-foreground">
-                      {session.completed ? "Completed" : "In Progress"}
+                      {session.status}
                     </div>
                   </div>
                 </div>

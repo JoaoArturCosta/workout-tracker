@@ -1,441 +1,58 @@
 "use client";
+/* eslint-disable @typescript-eslint/no-explicit-any -- template router output changes with the expanded contract. */
 
 import { useEffect } from "react";
-import { useForm, useFieldArray } from "react-hook-form";
+import { useFieldArray, useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { api } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Trash2, GripVertical, Dumbbell, Target } from "lucide-react";
-import { api } from "@/lib/trpc";
-import { CreateWorkoutTemplateSchema } from "@/lib/schemas";
-import { toast } from "sonner";
 import { ExerciseSelectionDialog } from "@/components/templates/exercise-selection-dialog";
+import { Plus, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 
-const FormSchema = CreateWorkoutTemplateSchema.omit({
-  userId: true,
-}).extend({
-  exercises: z
-    .array(
-      z.object({
-        exerciseId: z.string().uuid(),
-        orderIndex: z.number().min(0),
-        sets: z.number().min(1).max(20),
-        repsMin: z.number().min(1).max(100),
-        repsMax: z.number().min(1).max(100),
-        rpeTarget: z.number().min(6).max(10).optional(),
-        restTimeSeconds: z.number().min(10).max(600).optional(),
-      })
-    )
-    .optional(),
-});
-
+const ExerciseInput = z.object({ exerciseId: z.string().uuid(), orderIndex: z.number().int().min(0), sets: z.number().int().min(1).max(20), mode: z.enum(["Reps", "Duration"]), repsMin: z.number().int().min(1).max(100).nullable().optional(), repsMax: z.number().int().min(1).max(100).nullable().optional(), targetSeconds: z.number().int().min(1).max(3600).nullable().optional(), rpeTarget: z.number().int().min(6).max(10).nullable().optional(), restTimeSeconds: z.number().int().min(0).max(3600) });
+const FormSchema = z.object({ name: z.string().min(1).max(50), dayNumber: z.number().int().min(1).max(7), exercises: z.array(ExerciseInput) });
 type FormData = z.infer<typeof FormSchema>;
+type AnyRecord = Record<string, any>;
 
-interface EditTemplateFormProps {
-  templateId: string;
-  onSuccess: () => void;
-}
+export function EditTemplateForm({ templateId, onSuccess }: { templateId: string; onSuccess: () => void }) {
+  const templateApi = api.template as any;
+  const { data: template } = templateApi.getById.useQuery({ id: templateId });
+  const { register, control, handleSubmit, watch, setValue, reset, formState: { errors, isSubmitting } } = useForm<FormData>({ resolver: zodResolver(FormSchema), defaultValues: { name: "", dayNumber: 1, exercises: [] } });
+  const { fields, append, remove } = useFieldArray({ control, name: "exercises" });
+  const { data: allExercises = [] } = api.exercise.getAll.useQuery({});
+  const mutation = templateApi.update.useMutation({ onSuccess: () => { toast.success("Template updated"); onSuccess(); }, onError: (error: Error) => toast.error(error.message) });
 
-const DAYS = [
-  { number: 1, name: "Day 1" },
-  { number: 2, name: "Day 2" },
-  { number: 3, name: "Day 3" },
-  { number: 4, name: "Day 4" },
-  { number: 5, name: "Day 5" },
-  { number: 6, name: "Day 6" },
-  { number: 7, name: "Day 7" },
-];
-
-export function EditTemplateForm({
-  templateId,
-  onSuccess,
-}: EditTemplateFormProps) {
-  const utils = api.useUtils();
-  const { data: template } = api.template.getById.useQuery({ id: templateId });
-
-  const {
-    register,
-    control,
-    handleSubmit,
-    watch,
-    setValue,
-    reset,
-    formState: { errors, isSubmitting },
-  } = useForm<FormData>({
-    resolver: zodResolver(FormSchema),
-    defaultValues: {
-      name: "",
-      dayNumber: 1,
-      exercises: [],
-    },
-    mode: "onChange",
-  });
-
-  const { fields, append, remove } = useFieldArray({
-    control,
-    name: "exercises",
-  });
-
-  // Get all exercises for looking up added exercises
-  const { data: allExercises } = api.exercise.getAll.useQuery({});
-
-  const updateTemplateMutation = api.template.update.useMutation({
-    onSuccess: () => {
-      utils.template.getAll.invalidate();
-      utils.template.getById.invalidate({ id: templateId });
-      toast.success("Template updated successfully!");
-      onSuccess();
-    },
-    onError: (error) => {
-      // Extract user-friendly error message
-      let errorMessage = "Failed to update template";
-
-      if (error.data?.zodError) {
-        // Handle validation errors
-        const zodErrors = error.data.zodError.fieldErrors;
-        const firstError = Object.values(zodErrors)[0];
-        if (firstError && firstError[0]) {
-          errorMessage = firstError[0];
-        }
-      } else if (error.message) {
-        // Use the server error message
-        errorMessage = error.message;
-      }
-
-      toast.error(errorMessage);
-      console.error("Mutation error:", error);
-    },
-  });
-
-  // Reset form when template data loads
   useEffect(() => {
-    if (template) {
-      console.log("Template data:", template);
-      console.log("Day number from template:", template.day_number);
-      console.log("Day number (camelCase):", template.dayNumber);
-
-      // Use dayNumber (camelCase) first, fallback to day_number (snake_case)
-      const dayNumber = template.dayNumber || template.day_number || 1;
-      console.log("Final dayNumber value:", dayNumber);
-
-      const formData = {
-        name: template.name || "",
-        dayNumber: Number(dayNumber), // Ensure it's a number
-        exercises:
-          template.template_exercises?.map((te) => ({
-            exerciseId: te.exercise_id,
-            orderIndex: te.order_index,
-            sets: te.sets,
-            repsMin: te.reps_min,
-            repsMax: te.reps_max,
-            rpeTarget: te.rpe_target || undefined,
-            restTimeSeconds: te.rest_time_seconds || 120,
-          })) || [],
-      };
-
-      console.log("Form data being set:", formData);
-      reset(formData);
-    }
+    if (!template) return;
+    const data = template as AnyRecord;
+    const rows = (data.template_exercises ?? data.templateExercises ?? []).map((row: AnyRecord, index: number) => ({
+      exerciseId: row.exerciseId ?? row.exercise_id,
+      orderIndex: row.orderIndex ?? row.order_index ?? index,
+      sets: row.sets,
+      mode: row.mode === "Duration" ? "Duration" : "Reps",
+      repsMin: row.repsMin ?? row.reps_min ?? null,
+      repsMax: row.repsMax ?? row.reps_max ?? null,
+      targetSeconds: row.targetSeconds ?? row.target_seconds ?? null,
+      rpeTarget: row.rpeTarget ?? row.rpe_target ?? null,
+      restTimeSeconds: row.restTimeSeconds ?? row.rest_time_seconds ?? 120,
+    }));
+    reset({ name: data.name ?? "", dayNumber: Number(data.dayNumber ?? data.day_number ?? 1), exercises: rows });
   }, [template, reset]);
 
-  const onSubmit = async (data: FormData) => {
-    try {
-      // The server will override this with the actual session user ID
-      const submitData = {
-        ...data,
-        userId: "00000000-0000-0000-0000-000000000000", // Valid UUID placeholder
-      };
-      await updateTemplateMutation.mutateAsync({
-        id: templateId,
-        data: submitData,
-      });
-    } catch (error) {
-      // Error is already handled by onError callback above
-      console.error("Failed to update template:", error);
-    }
-  };
+  const addExercise = (exercise: { id: string }) => append({ exerciseId: exercise.id, orderIndex: fields.length, sets: 3, mode: "Reps", repsMin: 8, repsMax: 12, targetSeconds: null, rpeTarget: null, restTimeSeconds: 120 });
 
-  const addExercise = (exercise: {
-    id: string;
-    name: string;
-    muscleGroup: string;
-    equipment?: string | null;
-  }) => {
-    append({
-      exerciseId: exercise.id,
-      orderIndex: fields.length,
-      sets: 3,
-      repsMin: 8,
-      repsMax: 12,
-      rpeTarget: undefined,
-      restTimeSeconds: 120,
-    });
-  };
-
-  const getMuscleGroupColor = (muscleGroup: string) => {
-    const colors: Record<string, string> = {
-      chest: "bg-red-100 text-red-800",
-      back: "bg-blue-100 text-blue-800",
-      shoulders: "bg-yellow-100 text-yellow-800",
-      arms: "bg-purple-100 text-purple-800",
-      legs: "bg-green-100 text-green-800",
-      core: "bg-orange-100 text-orange-800",
-    };
-    return colors[muscleGroup] || "bg-gray-100 text-gray-800";
-  };
-
-  if (!template) {
-    return <div>Loading...</div>;
-  }
-
-  return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <Label htmlFor="name">Template Name</Label>
-          <Input
-            id="name"
-            {...register("name")}
-            placeholder="e.g., Push Day, Upper Body"
-          />
-          {errors.name && (
-            <p className="text-sm text-destructive">{errors.name.message}</p>
-          )}
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="dayNumber">Day</Label>
-          <Select
-            value={(() => {
-              const dayValue = watch("dayNumber");
-              console.log("Current watch dayNumber value:", dayValue);
-              // Ensure we always return a valid string
-              if (
-                dayValue &&
-                !isNaN(dayValue) &&
-                dayValue >= 1 &&
-                dayValue <= 7
-              ) {
-                return dayValue.toString();
-              }
-              return "1"; // Default fallback
-            })()}
-            onValueChange={(value) => {
-              console.log("Setting dayNumber to:", value);
-              const numValue = parseInt(value, 10);
-              if (!isNaN(numValue)) {
-                setValue("dayNumber", numValue, { shouldValidate: true });
-              }
-            }}
-          >
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {DAYS.map((day) => (
-                <SelectItem key={day.number} value={day.number.toString()}>
-                  {day.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {errors.dayNumber && (
-            <p className="text-sm text-destructive">
-              {errors.dayNumber.message}
-            </p>
-          )}
-        </div>
-      </div>
-
-      <div className="space-y-4">
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
-          <h3 className="text-lg font-semibold">Exercises</h3>
-          <ExerciseSelectionDialog
-            trigger={
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full sm:w-auto"
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Add Exercise
-              </Button>
-            }
-            onExerciseSelect={addExercise}
-            title="Add Exercise to Template"
-          />
-        </div>
-
-        {fields.length === 0 ? (
-          <Card className="border-dashed">
-            <CardContent className="p-6 sm:p-8 text-center">
-              <Dumbbell className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-              <p className="text-muted-foreground text-sm sm:text-base">
-                No exercises added yet. Click Add Exercise to get started.
-              </p>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="space-y-3">
-            {fields.map((field, index) => {
-              const exercise = allExercises?.find(
-                (e) => e.id === field.exerciseId
-              );
-              return (
-                <Card key={field.id} className="border-l-4 border-l-primary">
-                  <CardHeader className="pb-3">
-                    <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
-                      <div className="flex items-center gap-2 min-w-0 flex-1">
-                        <GripVertical className="h-4 w-4 text-muted-foreground cursor-move flex-shrink-0" />
-                        <span className="text-sm font-medium text-muted-foreground flex-shrink-0">
-                          {index + 1}.
-                        </span>
-                        <CardTitle className="text-base truncate">
-                          {exercise?.name}
-                        </CardTitle>
-                        {exercise && (
-                          <Badge
-                            variant="secondary"
-                            className={`${getMuscleGroupColor(
-                              exercise.muscleGroup
-                            )} hidden sm:inline-flex`}
-                          >
-                            {exercise.muscleGroup}
-                          </Badge>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {exercise && (
-                          <Badge
-                            variant="secondary"
-                            className={`${getMuscleGroupColor(
-                              exercise.muscleGroup
-                            )} sm:hidden`}
-                          >
-                            {exercise.muscleGroup}
-                          </Badge>
-                        )}
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => remove(index)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="pt-0">
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-                      <div className="space-y-1">
-                        <Label className="text-xs">Sets</Label>
-                        <Input
-                          type="number"
-                          min="1"
-                          max="20"
-                          {...register(`exercises.${index}.sets`, {
-                            valueAsNumber: true,
-                          })}
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs">Min Reps</Label>
-                        <Input
-                          type="number"
-                          min="1"
-                          max="100"
-                          {...register(`exercises.${index}.repsMin`, {
-                            valueAsNumber: true,
-                          })}
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs">Max Reps</Label>
-                        <Input
-                          type="number"
-                          min="1"
-                          max="100"
-                          {...register(`exercises.${index}.repsMax`, {
-                            valueAsNumber: true,
-                          })}
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs">RPE</Label>
-                        <Input
-                          type="number"
-                          min="6"
-                          max="10"
-                          step="0.5"
-                          {...register(`exercises.${index}.rpeTarget`, {
-                            setValueAs: (value) => {
-                              if (
-                                value === "" ||
-                                value === null ||
-                                value === undefined
-                              ) {
-                                return undefined;
-                              }
-                              const parsed = parseFloat(value);
-                              return isNaN(parsed) ? undefined : parsed;
-                            },
-                          })}
-                          placeholder="Optional"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs">Rest (sec)</Label>
-                        <Input
-                          type="number"
-                          min="10"
-                          max="600"
-                          {...register(`exercises.${index}.restTimeSeconds`, {
-                            valueAsNumber: true,
-                          })}
-                          placeholder="120"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs">Target</Label>
-                        <div className="flex items-center gap-1 text-xs text-muted-foreground h-10 px-3 border rounded-md bg-muted/30">
-                          <Target className="h-3 w-3" />
-                          <span>
-                            {field.repsMin}-{field.repsMax} reps
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      <div className="flex flex-col sm:flex-row gap-3 pt-6">
-        <Button
-          type="submit"
-          disabled={isSubmitting || updateTemplateMutation.isPending}
-          className="flex-1"
-        >
-          {isSubmitting || updateTemplateMutation.isPending
-            ? "Updating..."
-            : "Update Template"}
-        </Button>
-      </div>
-    </form>
-  );
+  if (!template) return <p>Loading template…</p>;
+  return <form className="space-y-6" onSubmit={handleSubmit((data) => mutation.mutate({ id: templateId, data }))}>
+    <div className="grid gap-4 sm:grid-cols-2"><div><Label htmlFor="template-name">Template name</Label><Input id="template-name" {...register("name")} />{errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}</div><div><Label>Day</Label><Select value={String(watch("dayNumber"))} onValueChange={(value) => setValue("dayNumber", Number(value))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{Array.from({ length: 7 }, (_, i) => <SelectItem key={i + 1} value={String(i + 1)}>Day {i + 1}</SelectItem>)}</SelectContent></Select></div></div>
+    <div className="flex items-center justify-between"><h2 className="text-lg font-semibold">Exercise occurrences</h2><ExerciseSelectionDialog trigger={<Button type="button" variant="outline"><Plus className="h-4 w-4" />Add exercise</Button>} onExerciseSelect={addExercise} title="Add exercise" /></div>
+    <div className="space-y-3">{fields.map((field, index) => { const exercise = allExercises.find((item) => item.id === field.exerciseId); const mode = watch(`exercises.${index}.mode`); return <Card key={field.id}><CardHeader className="flex-row items-center justify-between space-y-0"><CardTitle className="text-base">{index + 1}. {exercise?.name ?? "Exercise"}</CardTitle><Button type="button" size="icon" variant="ghost" onClick={() => remove(index)} aria-label="Remove exercise"><Trash2 className="h-4 w-4" /></Button></CardHeader><CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><div><Label>Mode</Label><Select value={mode} onValueChange={(value: "Reps" | "Duration") => { setValue(`exercises.${index}.mode`, value); if (value === "Reps") setValue(`exercises.${index}.targetSeconds`, null); else { setValue(`exercises.${index}.repsMin`, null); setValue(`exercises.${index}.repsMax`, null); } }}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="Reps">Reps</SelectItem><SelectItem value="Duration">Duration</SelectItem></SelectContent></Select></div><div><Label>Sets</Label><Input type="number" min="1" max="20" {...register(`exercises.${index}.sets`, { valueAsNumber: true })} /></div>{mode === "Duration" ? <div><Label>Target seconds</Label><Input type="number" min="1" max="3600" {...register(`exercises.${index}.targetSeconds`, { valueAsNumber: true })} /></div> : <><div><Label>Rep min</Label><Input type="number" min="1" max="100" {...register(`exercises.${index}.repsMin`, { valueAsNumber: true })} /></div><div><Label>Rep max</Label><Input type="number" min="1" max="100" {...register(`exercises.${index}.repsMax`, { valueAsNumber: true })} /></div></>}<div><Label>Rest seconds</Label><Input type="number" min="0" max="3600" {...register(`exercises.${index}.restTimeSeconds`, { valueAsNumber: true })} /></div><div><Label>RPE target</Label><Input type="number" min="6" max="10" {...register(`exercises.${index}.rpeTarget`, { valueAsNumber: true })} /></div><Badge variant="outline" className="self-end">{mode === "Duration" ? "Seconds count only" : "Volume and 1RM"}</Badge></CardContent></Card>; })}</div>
+    <Button type="submit" disabled={isSubmitting || mutation.isPending}>{mutation.isPending ? "Saving…" : "Save changes"}</Button>
+  </form>;
 }

@@ -22,6 +22,20 @@
       "when": 1751134000307,
       "tag": "0002_add_rest_time_to_template_exercises",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1785156641118,
+      "tag": "0003_expand_workout_model",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1785156641119,
+      "tag": "0004_backfill_workout_model",
+      "breakpoints": true
     }
   ]
 }

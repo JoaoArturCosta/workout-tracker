@@ -1,4 +1,21 @@
 import type { RouterOutputs } from "@/lib/trpc";
+export type {
+  CommandEnvelope,
+  ControllerState,
+  DurationSetResult,
+  ExerciseMode,
+  RepSetResult,
+  RestStatus,
+  SetResult,
+  SetStatus,
+  SyncError,
+  SyncErrorCode,
+  TemplateOccurrence,
+  WorkoutCommand,
+  WorkoutMode,
+  WorkoutSetState,
+  WorkoutStatus,
+} from "@/lib/workouts/contracts";
 
 // Exercise types
 export type Exercise = RouterOutputs["exercise"]["getAll"][0];
@@ -10,12 +27,7 @@ export type TemplateExercise = Template["template_exercises"][0];
 // Session types
 export type Session = RouterOutputs["session"]["getHistory"][0];
 export type SessionHistory = RouterOutputs["progress"]["getSessionHistory"][0];
-export type SessionWithExercises =
-  RouterOutputs["session"]["getSessionWithExercises"];
-export type SessionExercise = NonNullable<
-  SessionWithExercises["session_exercises"]
->[0];
-export type SessionSet = NonNullable<SessionExercise["sets"]>[0];
+export type SessionWithExercises = RouterOutputs["session"]["getById"];
 
 // Progress types
 export type BodyWeightEntry =

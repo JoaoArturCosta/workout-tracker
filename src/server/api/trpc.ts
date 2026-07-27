@@ -5,10 +5,16 @@ import { ZodError } from "zod";
 
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { db, type Database } from "@/lib/db";
 
-type CreateContextOptions = {
+export type CreateContextOptions = {
   session: Session | null;
+  db?: Database;
+};
+
+export type TRPCContext = {
+  session: Session | null;
+  db: Database;
 };
 
 /**
@@ -21,10 +27,12 @@ type CreateContextOptions = {
  *
  * @see https://create.t3.gg/en/usage/trpc#-serverapitrpcts
  */
-const createInnerTRPCContext = (opts: CreateContextOptions) => {
+export const createInnerTRPCContext = (
+  opts: CreateContextOptions,
+): TRPCContext => {
   return {
     session: opts.session,
-    db,
+    db: opts.db ?? db,
   };
 };
 
@@ -52,9 +60,16 @@ export const createTRPCContext = async (opts: CreateNextContextOptions) => {
  * ZodErrors so that you get typesafety on the frontend if your procedure fails due to validation
  * errors on the backend.
  */
-const t = initTRPC.context<typeof createTRPCContext>().create({
+const t = initTRPC.context<TRPCContext>().create({
   transformer: undefined,
   errorFormatter({ shape, error }) {
+    const domainErrorCode =
+      typeof error.cause === "object" &&
+      error.cause !== null &&
+      "code" in error.cause &&
+      typeof error.cause.code === "string"
+        ? error.cause.code
+        : null;
     return {
       ...shape,
       data: {
@@ -63,6 +78,7 @@ const t = initTRPC.context<typeof createTRPCContext>().create({
           error.code === "BAD_REQUEST" && error.cause instanceof ZodError
             ? error.cause.flatten()
             : null,
+        domainErrorCode,
       },
     };
   },
