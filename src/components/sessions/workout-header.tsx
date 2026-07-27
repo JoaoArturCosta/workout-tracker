@@ -34,7 +34,16 @@ export function WorkoutHeader({
           <Badge variant={status === "Completed" ? "default" : status === "Partial" ? "secondary" : status === "Discarded" ? "destructive" : "outline"}>{status}</Badge>
         </div>
       </div>
-      {!ended && onEnd && <button type="button" className="text-sm text-muted-foreground underline" onClick={onEnd}>End workout</button>}
+      {!ended && (
+        <button
+          type="button"
+          className="text-sm text-muted-foreground underline disabled:cursor-not-allowed disabled:opacity-50"
+          onClick={onEnd}
+          disabled={!onEnd}
+        >
+          End workout
+        </button>
+      )}
     </header>
   );
 }
