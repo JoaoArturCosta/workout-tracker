@@ -12,7 +12,6 @@ export interface WorkoutHeaderProps {
   completedSets: number;
   totalSets: number;
   startedAt?: Date | string | null;
-  onEnd?: () => void;
 }
 
 export function WorkoutHeader({
@@ -21,7 +20,6 @@ export function WorkoutHeader({
   completedSets,
   totalSets,
   startedAt,
-  onEnd,
 }: WorkoutHeaderProps) {
   const ended = status !== "Active";
   return (
@@ -34,16 +32,6 @@ export function WorkoutHeader({
           <Badge variant={status === "Completed" ? "default" : status === "Partial" ? "secondary" : status === "Discarded" ? "destructive" : "outline"}>{status}</Badge>
         </div>
       </div>
-      {!ended && (
-        <button
-          type="button"
-          className="text-sm text-muted-foreground underline disabled:cursor-not-allowed disabled:opacity-50"
-          onClick={onEnd}
-          disabled={!onEnd}
-        >
-          End workout
-        </button>
-      )}
     </header>
   );
 }

@@ -28,6 +28,7 @@ export type TemplateExercise = Template["template_exercises"][0];
 export type Session = RouterOutputs["session"]["getHistory"][0];
 export type SessionHistory = RouterOutputs["progress"]["getSessionHistory"][0];
 export type SessionWithExercises = RouterOutputs["session"]["getById"];
+export type PriorSetValues = NonNullable<RouterOutputs["session"]["getPriorSetValues"]>;
 
 // Progress types
 export type BodyWeightEntry =

@@ -2,21 +2,24 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { signIn, useSession } from "next-auth/react";
 import { api } from "@/lib/trpc";
 import { getDeviceId } from "@/lib/offline-workouts/db";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Calendar, Clock, History, Play } from "lucide-react";
+import { Calendar, Clock, History, LogIn, Play } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { WorkoutAlertSetup } from "@/components/push/workout-alert-setup";
 
 export default function SessionsPage() {
   const router = useRouter();
-  const currentQuery = api.session.getCurrent.useQuery();
-  const historyQuery = api.session.getHistory.useQuery({ limit: 20 });
-  const templatesQuery = api.template.getAll.useQuery({ includeArchived: true });
+  const { data: session, status } = useSession();
+  const isAuthenticated = status === "authenticated" && !!session?.user;
+  const currentQuery = api.session.getCurrent.useQuery(undefined, { enabled: isAuthenticated });
+  const historyQuery = api.session.getHistory.useQuery({ limit: 20 }, { enabled: isAuthenticated });
+  const templatesQuery = api.template.getAll.useQuery({ includeArchived: true }, { enabled: isAuthenticated });
   const start = api.session.start.useMutation({ onSuccess: (session) => { toast.success("Workout started"); router.push(`/sessions/${session.id}`); }, onError: (error) => toast.error(error.message) });
   const [deviceId, setDeviceId] = useState<string | null>(null);
   useEffect(() => { let cancelled = false; void getDeviceId().then((id) => { if (!cancelled) setDeviceId(id); }).catch((error: Error) => toast.error(error.message)); return () => { cancelled = true; }; }, []);
@@ -25,6 +28,9 @@ export default function SessionsPage() {
   const templates = templatesQuery.data ?? [];
   const history = (historyQuery.data ?? []).filter((item) => item.status !== "Discarded");
   const startWorkout = (templateId: string) => { if (deviceId) start.mutate({ templateId, deviceId }); };
+
+  if (status === "loading") return <div className="container mx-auto p-6">Loading…</div>;
+  if (!isAuthenticated) return <div className="container mx-auto flex min-h-[400px] items-center justify-center p-6"><Card className="max-w-md"><CardContent className="space-y-4 pt-6 text-center"><LogIn className="mx-auto" /><h2 className="text-xl font-semibold">Sign in required</h2><p className="text-sm text-muted-foreground">Sign in to start and review workouts.</p><Button onClick={() => signIn()}>Sign in</Button></CardContent></Card></div>;
 
   return <main className="container mx-auto space-y-6 p-4 sm:p-6"><header><h1 className="text-3xl font-bold">Workouts</h1><p className="text-muted-foreground">Start a workout or review your history.</p></header>
     {deviceId && <WorkoutAlertSetup deviceId={deviceId} showWarning={Boolean(current)} />}

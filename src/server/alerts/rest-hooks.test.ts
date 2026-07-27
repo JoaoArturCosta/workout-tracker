@@ -133,4 +133,33 @@ describe("rest alert workout hooks", () => {
 
     expect(tx.cancelScheduledRest).toHaveBeenCalledOnce();
   });
+
+  it("does not change rest when saving an out-of-order or completed set", async () => {
+    const tx = {
+      cancelScheduledRest: vi.fn().mockResolvedValue(undefined),
+      scheduleRest: vi.fn().mockResolvedValue(null),
+    } as unknown as AlertWorkoutTransaction;
+    const hooks = createRestAlertCommandHooks({
+      publish: vi.fn(),
+      recordMessageId: vi.fn(),
+    });
+
+    await hooks.afterTransition?.(
+      tx,
+      context({
+        type: "SaveSet",
+        sessionSetId: "773e938e-1bb8-4f06-b222-d77eda3dc42f",
+        result: {
+          mode: "Reps",
+          actualReps: 10,
+          actualSeconds: null,
+          externalLoadKg: 20,
+          rpe: null,
+        },
+      })
+    );
+
+    expect(tx.cancelScheduledRest).not.toHaveBeenCalled();
+    expect(tx.scheduleRest).not.toHaveBeenCalled();
+  });
 });

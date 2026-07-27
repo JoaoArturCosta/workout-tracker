@@ -255,6 +255,7 @@ export const getPriorSetValues = async ({
       externalLoadKg: sessionSets.externalLoadKg,
       actualReps: sessionSets.actualReps,
       actualSeconds: sessionSets.actualSeconds,
+      rpe: sessionSets.rpe,
     })
     .from(sessionSets)
     .innerJoin(
@@ -283,6 +284,7 @@ export const getPriorSetValues = async ({
         externalLoadKg: Number(prior.externalLoadKg),
         actualReps: prior.actualReps,
         actualSeconds: prior.actualSeconds,
+        rpe: prior.rpe,
       }
     : null;
 };

@@ -45,6 +45,88 @@ describe("workout state machine", () => {
     ]);
   });
 
+  it("saves a non-current pending set without moving Current", () => {
+    const next = applyWorkoutTransition(
+      activeWorkout(["Pending", "Pending", "Pending"]),
+      {
+        type: "SaveSet",
+        setId: "set-2",
+        completedAt: new Date("2026-07-27T11:00:00.000Z"),
+      }
+    );
+
+    expect(next.status).toBe("Active");
+    expect(next.sets.map((set) => set.status)).toEqual([
+      "Pending",
+      "Completed",
+      "Pending",
+    ]);
+    expect(getCurrentSet(next)?.id).toBe("set-1");
+  });
+
+  it("saves a skipped set as completed", () => {
+    const next = applyWorkoutTransition(
+      activeWorkout(["Pending", "Skipped"]),
+      {
+        type: "SaveSet",
+        setId: "set-2",
+        completedAt: new Date("2026-07-27T11:00:00.000Z"),
+      }
+    );
+
+    expect(next.sets[1]).toEqual({
+      id: "set-2",
+      status: "Completed",
+      completedAt: new Date("2026-07-27T11:00:00.000Z"),
+    });
+  });
+
+  it("preserves completion time when saving a completed set", () => {
+    const workout = activeWorkout(["Completed", "Pending"]);
+
+    const next = applyWorkoutTransition(workout, {
+      type: "SaveSet",
+      setId: "set-1",
+      completedAt: new Date("2026-07-27T12:00:00.000Z"),
+    });
+
+    expect(next.sets[0].completedAt).toEqual(workout.sets[0].completedAt);
+  });
+
+  it("ends Completed when saving the last skipped set completes the plan", () => {
+    const next = applyWorkoutTransition(
+      activeWorkout(["Completed", "Skipped"]),
+      {
+        type: "SaveSet",
+        setId: "set-2",
+        completedAt: new Date("2026-07-27T11:00:00.000Z"),
+      }
+    );
+
+    expect(next.status).toBe("Completed");
+    expect(next.sets.every((set) => set.status === "Completed")).toBe(true);
+  });
+
+  it("keeps Current on the normal completion path and guards the final pending set", () => {
+    expect(() =>
+      applyWorkoutTransition(activeWorkout(["Pending", "Pending"]), {
+        type: "SaveSet",
+        setId: "set-1",
+        completedAt: new Date("2026-07-27T11:00:00.000Z"),
+      })
+    ).toThrowError(expect.objectContaining({ code: "SET_IS_CURRENT" }));
+
+    expect(() =>
+      applyWorkoutTransition(activeWorkout(["Completed", "Pending"]), {
+        type: "SaveSet",
+        setId: "set-2",
+        completedAt: new Date("2026-07-27T11:00:00.000Z"),
+      })
+    ).toThrowError(
+      expect.objectContaining({ code: "FINAL_SET_REQUIRES_FINISH" })
+    );
+  });
+
   it("requires Finish confirmation for the final pending set", () => {
     expect(() =>
       applyWorkoutTransition(activeWorkout(["Pending"]), {
@@ -137,12 +219,20 @@ describe("workout state machine", () => {
     ]);
   });
 
-  it("discards without deleting set records", () => {
-    const workout = activeWorkout(["Completed", "Pending"]);
+  it("discards without deleting set records and skips pending sets", () => {
+    const workout = activeWorkout(["Completed", "Pending", "Skipped"]);
     const next = applyWorkoutTransition(workout, { type: "Discard" });
 
     expect(next.status).toBe("Discarded");
-    expect(next.sets).toEqual(workout.sets);
+    expect(next.sets.map((set) => set.status)).toEqual([
+      "Completed",
+      "Skipped",
+      "Skipped",
+    ]);
+    expect(next.sets.map((set) => set.id)).toEqual(
+      workout.sets.map((set) => set.id)
+    );
+    expect(next.sets[1].completedAt).toBeNull();
   });
 
   it.each(["Completed", "Partial", "Discarded"] as const)(

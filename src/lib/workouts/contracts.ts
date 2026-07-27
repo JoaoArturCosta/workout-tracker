@@ -92,6 +92,10 @@ const CompleteSetCommand = SessionSetCommand.extend({
   type: z.literal("CompleteSet"),
   result: SetResultSchema,
 }).strict();
+const SaveSetCommand = SessionSetCommand.extend({
+  type: z.literal("SaveSet"),
+  result: SetResultSchema,
+}).strict();
 const EditCompletedSetCommand = SessionSetCommand.extend({
   type: z.literal("EditCompletedSet"),
   result: SetResultSchema,
@@ -113,6 +117,7 @@ const DiscardCommand = z.object({ type: z.literal("Discard") }).strict();
 
 export const WorkoutCommandSchema = z.discriminatedUnion("type", [
   CompleteSetCommand,
+  SaveSetCommand,
   EditCompletedSetCommand,
   SkipSetCommand,
   RestoreSetCommand,

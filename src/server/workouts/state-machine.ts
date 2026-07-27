@@ -14,6 +14,7 @@ export type WorkoutState = {
 
 export type WorkoutTransition =
   | { type: "CompleteCurrent"; setId: string; completedAt: Date }
+  | { type: "SaveSet"; setId: string; completedAt: Date }
   | { type: "Finish"; setId: string; completedAt: Date }
   | { type: "SkipCurrent"; setId: string }
   | { type: "Restore"; setId: string }
@@ -25,6 +26,7 @@ export type WorkoutTransitionErrorCode =
   | "WORKOUT_ENDED"
   | "SET_NOT_FOUND"
   | "SET_NOT_CURRENT"
+  | "SET_IS_CURRENT"
   | "SET_NOT_SKIPPED"
   | "SET_NOT_COMPLETED"
   | "NOT_LATEST_COMPLETION"
@@ -122,6 +124,38 @@ export const applyWorkoutTransition = (
         completedAt: transition.completedAt,
       });
     }
+    case "SaveSet": {
+      const set = requireSet(workout, transition.setId);
+      if (set.status === "Completed") {
+        return workout;
+      }
+      if (set.status === "Pending") {
+        if (
+          workout.sets.filter((candidate) => candidate.status === "Pending")
+            .length === 1
+        ) {
+          throw new WorkoutTransitionError(
+            "FINAL_SET_REQUIRES_FINISH",
+            "The final pending set must use Finish"
+          );
+        }
+        if (getCurrentSet(workout)?.id === transition.setId) {
+          throw new WorkoutTransitionError(
+            "SET_IS_CURRENT",
+            "The Current set must use CompleteSet"
+          );
+        }
+      }
+      const completed = replaceSet(workout, transition.setId, {
+        status: "Completed",
+        completedAt: transition.completedAt,
+      });
+      return completed.sets.every(
+        (candidate) => candidate.status === "Completed"
+      )
+        ? { ...completed, status: "Completed" }
+        : completed;
+    }
     case "Finish": {
       requireCurrent(workout, transition.setId);
       if (workout.sets.filter((set) => set.status === "Pending").length !== 1) {
@@ -190,6 +224,14 @@ export const applyWorkoutTransition = (
         ),
       };
     case "Discard":
-      return { ...workout, status: "Discarded" };
+      return {
+        ...workout,
+        status: "Discarded",
+        sets: workout.sets.map((set) =>
+          set.status === "Pending"
+            ? { ...set, status: "Skipped", completedAt: null }
+            : set
+        ),
+      };
   }
 };

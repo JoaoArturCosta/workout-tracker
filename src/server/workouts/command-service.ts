@@ -180,6 +180,21 @@ const applyCommand = (
 ): CommandWorkout => {
   try {
     switch (command.type) {
+      case "SaveSet": {
+        const transitioned = applyState(
+          workout,
+          applyWorkoutTransition(toState(workout), {
+            type: "SaveSet",
+            setId: command.sessionSetId,
+            completedAt: now,
+          })
+        );
+        return replaceResult(
+          transitioned,
+          command.sessionSetId,
+          command.result
+        );
+      }
       case "CompleteSet":
       case "Finish": {
         const transitioned = applyState(

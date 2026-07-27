@@ -43,7 +43,10 @@ export function createRestAlertCommandHooks(
 ): WorkoutCommandHooks {
   return {
     async afterTransition(tx, context) {
-      if (context.command.type === "EditCompletedSet") {
+      if (
+        context.command.type === "EditCompletedSet" ||
+        context.command.type === "SaveSet"
+      ) {
         return undefined;
       }
 

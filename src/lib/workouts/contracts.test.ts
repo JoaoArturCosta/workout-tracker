@@ -128,4 +128,28 @@ describe("workout domain contracts", () => {
       })
     ).toThrow();
   });
+
+  it("accepts SaveSet with the same guarded result contract", () => {
+    const parsed = CommandEnvelopeSchema.parse({
+      operationId: uuid,
+      sessionId: uuid,
+      deviceId: uuid,
+      controllerEpoch: 1,
+      expectedRevision: 0,
+      command: {
+        type: "SaveSet",
+        sessionSetId: uuid,
+        result: { mode: "Reps", actualReps: 8 },
+      },
+    });
+
+    expect(parsed.command).toMatchObject({
+      type: "SaveSet",
+      sessionSetId: uuid,
+      result: {
+        mode: "Reps",
+        actualReps: 8,
+      },
+    });
+  });
 });

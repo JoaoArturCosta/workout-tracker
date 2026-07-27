@@ -114,6 +114,35 @@ describe("executeWorkoutCommand", () => {
     });
   });
 
+  it("discards the workout and marks every pending set as skipped", async () => {
+    const current = workout();
+    current.sets[0] = {
+      ...current.sets[0],
+      status: "Completed",
+      completedAt: new Date("2026-07-27T11:00:00.000Z"),
+      result: envelope.command.result,
+    };
+    const store = new MemoryStore(current);
+
+    const response = await executeWorkoutCommand({
+      store,
+      userId: "user-1",
+      envelope: {
+        ...envelope,
+        command: { type: "Discard" },
+      },
+      now: new Date("2026-07-27T12:00:00.000Z"),
+    });
+
+    expect(response.result.status).toBe("Discarded");
+    expect(response.result.sets.map((set) => set.status)).toEqual([
+      "Completed",
+      "Skipped",
+    ]);
+    expect(response.result.sets[1].completedAt).toBeNull();
+    expect(store.workout.endTime).toEqual(new Date("2026-07-27T12:00:00.000Z"));
+  });
+
   it("returns the stored result when an operation ID is replayed", async () => {
     const store = new MemoryStore(workout());
     const first = await executeWorkoutCommand({
@@ -210,6 +239,117 @@ describe("executeWorkoutCommand", () => {
         rpe: 8,
       },
     });
+  });
+
+  it("saves an out-of-order pending set without changing the current set", async () => {
+    const store = new MemoryStore(workout());
+    const result = {
+      ...envelope.command.result,
+      externalLoadKg: 25,
+      actualReps: 10,
+    };
+
+    const response = await executeWorkoutCommand({
+      store,
+      userId: "user-1",
+      envelope: {
+        ...envelope,
+        command: {
+          type: "SaveSet",
+          sessionSetId: "set-2",
+          result,
+        },
+      },
+      now: new Date("2026-07-27T12:00:00.000Z"),
+    });
+
+    expect(response.result.status).toBe("Active");
+    expect(response.result.sets[0].status).toBe("Pending");
+    expect(response.result.sets[1]).toEqual({
+      id: "set-2",
+      mode: "Reps",
+      status: "Completed",
+      completedAt: new Date("2026-07-27T12:00:00.000Z"),
+      result,
+    });
+  });
+
+  it.each(["Skipped", "Completed"] as const)(
+    "saves a %s set and preserves prior completion time when present",
+    async (status) => {
+      const current = workout();
+      const priorCompletedAt =
+        status === "Completed"
+          ? new Date("2026-07-27T11:00:00.000Z")
+          : null;
+      current.sets[1] = {
+        ...current.sets[1],
+        status,
+        completedAt: priorCompletedAt,
+        result: status === "Completed" ? envelope.command.result : null,
+      };
+      const store = new MemoryStore(current);
+      const result = {
+        ...envelope.command.result,
+        externalLoadKg: 30,
+        actualReps: 11,
+      };
+
+      const response = await executeWorkoutCommand({
+        store,
+        userId: "user-1",
+        envelope: {
+          ...envelope,
+          command: {
+            type: "SaveSet",
+            sessionSetId: "set-2",
+            result,
+          },
+        },
+        now: new Date("2026-07-27T12:00:00.000Z"),
+      });
+
+      expect(response.result.sets[1]).toEqual({
+        id: "set-2",
+        mode: "Reps",
+        status: "Completed",
+        completedAt:
+          priorCompletedAt ?? new Date("2026-07-27T12:00:00.000Z"),
+        result,
+      });
+    }
+  );
+
+  it("keeps the final pending set on the Finish path", async () => {
+    const current = workout();
+    current.sets[0] = {
+      ...current.sets[0],
+      status: "Completed",
+      completedAt: new Date("2026-07-27T11:00:00.000Z"),
+      result: envelope.command.result,
+    };
+    const store = new MemoryStore(current);
+
+    await expect(
+      executeWorkoutCommand({
+        store,
+        userId: "user-1",
+        envelope: {
+          ...envelope,
+          command: {
+            type: "SaveSet",
+            sessionSetId: "set-2",
+            result: envelope.command.result,
+          },
+        },
+      })
+    ).rejects.toEqual(
+      expect.objectContaining({
+        code: "INVALID_TRANSITION",
+        transitionCode: "FINAL_SET_REQUIRES_FINISH",
+      })
+    );
+    expect(store.workout.revision).toBe(0);
   });
 
   it("rejects a result whose mode differs from the frozen set mode", async () => {

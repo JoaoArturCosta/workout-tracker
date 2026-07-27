@@ -177,6 +177,101 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)(
       );
     });
 
+    it("persists a saved skipped set as completed", async () => {
+      const completedAt = new Date("2026-07-27T12:00:00.000Z");
+      await db
+        .update(sessionSets)
+        .set({ status: "Skipped" })
+        .where(eq(sessionSets.id, ids.secondSet));
+      const store = createDrizzleWorkoutCommandStore(db);
+
+      await executeWorkoutCommand({
+        store,
+        userId: ids.user,
+        envelope: {
+          ...command("20000000-0000-4000-8000-000000000003"),
+          command: {
+            type: "SaveSet",
+            sessionSetId: ids.secondSet,
+            result: {
+              mode: "Reps",
+              externalLoadKg: 25,
+              actualReps: 10,
+              actualSeconds: null,
+              rpe: 8,
+            },
+          },
+        },
+        now: completedAt,
+      });
+
+      const [saved] = await db
+        .select({
+          status: sessionSets.status,
+          completedAt: sessionSets.completedAt,
+          externalLoadKg: sessionSets.externalLoadKg,
+          actualReps: sessionSets.actualReps,
+          rpe: sessionSets.rpe,
+        })
+        .from(sessionSets)
+        .where(eq(sessionSets.id, ids.secondSet));
+      expect(saved).toEqual({
+        status: "Completed",
+        completedAt,
+        externalLoadKg: 25,
+        actualReps: 10,
+        rpe: 8,
+      });
+    });
+
+    it("updates a completed set without replacing its completion time", async () => {
+      const originalCompletedAt = new Date("2026-07-27T11:00:00.000Z");
+      await db
+        .update(sessionSets)
+        .set({
+          status: "Completed",
+          completedAt: originalCompletedAt,
+          externalLoadKg: 20,
+          actualReps: 8,
+        })
+        .where(eq(sessionSets.id, ids.secondSet));
+      const store = createDrizzleWorkoutCommandStore(db);
+
+      await executeWorkoutCommand({
+        store,
+        userId: ids.user,
+        envelope: {
+          ...command("20000000-0000-4000-8000-000000000004"),
+          command: {
+            type: "SaveSet",
+            sessionSetId: ids.secondSet,
+            result: {
+              mode: "Reps",
+              externalLoadKg: 30,
+              actualReps: 12,
+              actualSeconds: null,
+              rpe: null,
+            },
+          },
+        },
+        now: new Date("2026-07-27T13:00:00.000Z"),
+      });
+
+      const [saved] = await db
+        .select({
+          completedAt: sessionSets.completedAt,
+          externalLoadKg: sessionSets.externalLoadKg,
+          actualReps: sessionSets.actualReps,
+        })
+        .from(sessionSets)
+        .where(eq(sessionSets.id, ids.secondSet));
+      expect(saved).toEqual({
+        completedAt: originalCompletedAt,
+        externalLoadKg: 30,
+        actualReps: 12,
+      });
+    });
+
     it("returns the Scheduled Rest period in the workout snapshot", async () => {
       const startedAt = new Date("2026-07-27T10:00:00.000Z");
       const dueAt = new Date("2026-07-27T10:01:00.000Z");
