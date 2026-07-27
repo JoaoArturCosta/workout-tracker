@@ -21,17 +21,21 @@ SET
   "target_seconds" = te."target_seconds",
   "rpe_target" = te."rpe_target",
   "rest_time_seconds" = COALESCE(te."rest_time_seconds", 120)
-FROM "workout_sessions" AS ws
-JOIN "template_exercises" AS te
-  ON te."template_id" = ws."template_id"
- AND te."exercise_id" = se."exercise_id"
-JOIN "exercises" AS e ON e."id" = se."exercise_id"
-WHERE se."session_id" = ws."id";
+FROM "workout_sessions" AS ws,
+  "template_exercises" AS te,
+  "exercises" AS e
+WHERE se."session_id" = ws."id"
+  AND te."template_id" = ws."template_id"
+  AND te."exercise_id" = se."exercise_id"
+  AND e."id" = se."exercise_id";
 --> statement-breakpoint
 
 UPDATE "session_sets" AS ss
 SET
-  "status" = CASE WHEN ss."completed" THEN 'Completed' ELSE 'Pending' END,
+  "status" = CASE
+    WHEN ss."completed" THEN 'Completed'::"set_status"
+    ELSE 'Pending'::"set_status"
+  END,
   "mode" = COALESCE(se."mode", 'Reps'),
   "external_load_kg" = COALESCE(ss."weight", 0),
   "actual_reps" = CASE WHEN ss."completed" THEN ss."reps" ELSE NULL END,
@@ -53,14 +57,14 @@ SET
   "controller_epoch" = 1,
   "status" = CASE
     WHEN ws."end_time" IS NULL AND COALESCE(ws."completed", FALSE) = FALSE
-      THEN 'Active'
+      THEN 'Active'::"workout_status"
     WHEN NOT EXISTS (
       SELECT 1
       FROM "session_exercises" AS se
       JOIN "session_sets" AS ss ON ss."session_exercise_id" = se."id"
       WHERE se."session_id" = ws."id" AND ss."status" <> 'Completed'
-    ) THEN 'Completed'
-    ELSE 'Partial'
+    ) THEN 'Completed'::"workout_status"
+    ELSE 'Partial'::"workout_status"
   END
 FROM "workout_templates" AS wt
 WHERE wt."id" = ws."template_id";
@@ -80,14 +84,14 @@ WHERE ss."session_exercise_id" = se."id"
 UPDATE "workout_sessions" AS ws
 SET "status" = CASE
   WHEN ws."end_time" IS NULL AND COALESCE(ws."completed", FALSE) = FALSE
-    THEN 'Active'
+    THEN 'Active'::"workout_status"
   WHEN EXISTS (
     SELECT 1
     FROM "session_exercises" AS se
     JOIN "session_sets" AS ss ON ss."session_exercise_id" = se."id"
     WHERE se."session_id" = ws."id" AND ss."status" = 'Skipped'
-  ) THEN 'Partial'
-  ELSE 'Completed'
+  ) THEN 'Partial'::"workout_status"
+  ELSE 'Completed'::"workout_status"
 END;
 --> statement-breakpoint
 

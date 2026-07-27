@@ -37,7 +37,7 @@ export async function verifyBackfill(client: Queryable): Promise<Verification[]>
     JOIN session_sets ss ON ss.session_exercise_id = se.id
     WHERE s.status IN ('Completed', 'Partial', 'Discarded')
       AND ss.status = 'Pending'
-    ORDER BY s.id
+    ORDER BY id
   `);
   if (pendingEnded.rows.length > 0) {
     failures.push({
