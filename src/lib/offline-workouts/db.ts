@@ -156,7 +156,7 @@ export async function getDeviceId(): Promise<string> {
     await tx.done;
     return current.deviceId;
   }
-  await tx.store.put(record);
+  await tx.store.put(record, "device");
   await tx.done;
   return record.deviceId;
 }
