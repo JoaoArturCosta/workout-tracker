@@ -51,6 +51,8 @@ export const readinessStatusEnum = pgEnum("readiness_status", [
   "Expired",
 ]);
 
+// Database access is server-only, so every app table enables RLS without
+// browser-facing policies.
 // NextAuth tables
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -60,6 +62,7 @@ export const users = pgTable("users", {
   image: text("image"),
   createdAt: timestamp("created_at").defaultNow(),
 });
+users.enableRLS();
 
 export const accounts = pgTable("accounts", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -77,6 +80,7 @@ export const accounts = pgTable("accounts", {
   id_token: text("id_token"),
   session_state: varchar("session_state", { length: 255 }),
 });
+accounts.enableRLS();
 
 export const sessions = pgTable("sessions", {
   sessionToken: varchar("session_token", { length: 255 }).primaryKey(),
@@ -85,6 +89,7 @@ export const sessions = pgTable("sessions", {
     .references(() => users.id, { onDelete: "cascade" }),
   expires: timestamp("expires").notNull(),
 });
+sessions.enableRLS();
 
 export const verificationTokens = pgTable(
   "verification_tokens",
@@ -97,6 +102,7 @@ export const verificationTokens = pgTable(
     compositePk: primaryKey({ columns: [table.identifier, table.token] }),
   })
 );
+verificationTokens.enableRLS();
 
 // Exercises table
 export const exercises = pgTable(
@@ -115,6 +121,7 @@ export const exercises = pgTable(
     userIdIdx: index("idx_exercises_user_id").on(table.userId),
   })
 );
+exercises.enableRLS();
 
 // Workout templates table
 export const workoutTemplates = pgTable(
@@ -135,6 +142,7 @@ export const workoutTemplates = pgTable(
     dayNumberIdx: index("idx_workout_templates_day_number").on(table.dayNumber),
   })
 );
+workoutTemplates.enableRLS();
 
 // Template exercises table
 export const templateExercises = pgTable(
@@ -176,6 +184,7 @@ export const templateExercises = pgTable(
     ),
   })
 );
+templateExercises.enableRLS();
 
 // A stable, per-user device identity. One workout may assign one of these
 // devices as its controller; other devices can still read the workout.
@@ -199,6 +208,7 @@ export const workoutDevices = pgTable(
     ),
   })
 );
+workoutDevices.enableRLS();
 
 // Workout sessions table
 export const workoutSessions = pgTable(
@@ -236,6 +246,7 @@ export const workoutSessions = pgTable(
     ),
   })
 );
+workoutSessions.enableRLS();
 
 // Session exercises table
 export const sessionExercises = pgTable(
@@ -281,6 +292,7 @@ export const sessionExercises = pgTable(
     ),
   })
 );
+sessionExercises.enableRLS();
 
 // Session sets table
 export const sessionSets = pgTable(
@@ -332,6 +344,7 @@ export const sessionSets = pgTable(
     ),
   })
 );
+sessionSets.enableRLS();
 
 export const operationReceipts = pgTable(
   "operation_receipts",
@@ -354,6 +367,7 @@ export const operationReceipts = pgTable(
     ),
   })
 );
+operationReceipts.enableRLS();
 
 export const restPeriods = pgTable(
   "rest_periods",
@@ -397,6 +411,7 @@ export const restPeriods = pgTable(
     ),
   })
 );
+restPeriods.enableRLS();
 
 export const pushSubscriptions = pgTable(
   "push_subscriptions",
@@ -427,6 +442,7 @@ export const pushSubscriptions = pgTable(
       .where(sql`"revoked_at" IS NULL`),
   })
 );
+pushSubscriptions.enableRLS();
 
 export const readinessAttempts = pgTable(
   "readiness_attempts",
@@ -451,6 +467,7 @@ export const readinessAttempts = pgTable(
     nonceUniqueIdx: uniqueIndex("uq_readiness_attempts_nonce").on(table.nonce),
   })
 );
+readinessAttempts.enableRLS();
 
 export const deliveryEvents = pgTable(
   "delivery_events",
@@ -481,6 +498,7 @@ export const deliveryEvents = pgTable(
     occurredIdx: index("idx_delivery_events_occurred_at").on(table.occurredAt),
   })
 );
+deliveryEvents.enableRLS();
 
 // Body weight logs table
 export const bodyWeightLogs = pgTable(
@@ -498,6 +516,7 @@ export const bodyWeightLogs = pgTable(
     userIdIdx: index("idx_body_weight_logs_user_id").on(table.userId),
   })
 );
+bodyWeightLogs.enableRLS();
 
 // Relations
 export const usersRelations = relations(users, ({ many }) => ({
