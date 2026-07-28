@@ -19,7 +19,6 @@ import { PreviousSessionValues } from "@/components/sessions/previous-session-va
 import { ControllerControls } from "@/components/sessions/controller-controls";
 import { SyncConflictDialog } from "@/components/sessions/sync-conflict-dialog";
 import { SyncStatus } from "@/components/sessions/sync-status";
-import { WorkoutAlertSetup } from "@/components/push/workout-alert-setup";
 import { LogIn } from "lucide-react";
 import { toast } from "sonner";
 
@@ -105,7 +104,6 @@ export default function SessionPage({ params }: SessionPageProps) {
   return <main className="container mx-auto max-w-3xl space-y-5 p-4 sm:p-6">
     <WorkoutHeader name={workout.templateName} status={status ?? workout.status} completedSets={completedSets} totalSets={allSets} startedAt={String(workout.startTime)} />
     <SyncStatus state={active.syncState} pendingCount={active.outbox.length} errorMessage={active.error?.message} />
-    {!readOnly && deviceId && <WorkoutAlertSetup deviceId={deviceId} />}
     <WorkoutActions onDeviceControl={deviceId ? () => setControllerOpen(true) : undefined} canUndo={!readOnly && completedSets > 0} canFinish={!readOnly && completedSets === allSets && allSets > 0} onUndo={readOnly ? undefined : () => { const last = [...flatSets].reverse().find(({ set }) => set.status === "Completed"); if (last) void active.undoSet({ type: "Undo", sessionSetId: last.set.id }); }} onFinish={readOnly ? undefined : finishWorkout} onEnd={readOnly ? undefined : () => void active.end()} onDiscard={readOnly ? undefined : () => void active.discard()} />
     {deviceId && <ControllerControls open={controllerOpen} onOpenChange={setControllerOpen} hideTrigger controllerState={controllerQuery.data?.controllerState ?? "ReadOnly"} controllerDeviceId={controllerQuery.data?.controllerDeviceId ?? workout.controllerDeviceId} controllerEpoch={controllerQuery.data?.controllerEpoch ?? workout.controllerEpoch} acknowledgedRevision={controllerQuery.data?.revision ?? workout.revision} pendingOperationCount={active.outbox.length} disabled={handoffMutation.isPending || replaceMutation.isPending} onHandoff={(nextDeviceId) => handoffMutation.mutate({ sessionId, currentDeviceId: deviceId, nextDeviceId, controllerEpoch: controllerQuery.data?.controllerEpoch ?? workout.controllerEpoch, acknowledgedRevision: controllerQuery.data?.revision ?? workout.revision, pendingOperationCount: active.outbox.length })} onReplaceLostDevice={() => { if (window.confirm("Replace the lost controller? Unsynced changes may be lost.")) replaceMutation.mutate({ sessionId, nextDeviceId: deviceId, controllerEpoch: controllerQuery.data?.controllerEpoch ?? workout.controllerEpoch, confirmUnsyncedDataLoss: true }); }} />}
     {rest && !readOnly && <RestTimer startedAt={rest.startedAt} dueAt={rest.dueAt} onSkip={() => void active.queueCommand({ type: "SkipRest" })} />}
