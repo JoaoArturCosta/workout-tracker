@@ -112,7 +112,6 @@ export function createWebPushSender(
           {
             TTL: 60,
             urgency: "high",
-            topic: `${payload.kind === "rest-finished" ? "rest" : "ready"}-${payload.alertId.slice(0, 20)}`,
             vapidDetails: vapid,
           }
         );

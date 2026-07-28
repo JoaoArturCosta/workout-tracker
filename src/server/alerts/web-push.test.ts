@@ -8,7 +8,7 @@ import {
 } from "./web-push";
 
 describe("Web Push", () => {
-  it("sends a short-lived, high-priority, coalesced rest alert", async () => {
+  it("sends a short-lived, high-priority rest alert", async () => {
     const sendNotification = vi.fn().mockResolvedValue({
       statusCode: 201,
       headers: {},
@@ -49,13 +49,13 @@ describe("Web Push", () => {
     expect(options).toMatchObject({
       TTL: 60,
       urgency: "high",
-      topic: "rest-f3d8f90a-cc85-41f2-a",
       vapidDetails: {
         subject: "mailto:alerts@example.com",
         publicKey: "public",
         privateKey: "private",
       },
     });
+    expect(options).not.toHaveProperty("topic");
   });
 
   it.each([404, 410])(
