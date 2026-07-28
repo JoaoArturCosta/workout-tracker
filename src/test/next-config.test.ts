@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { apiRuntimeCacheRule } from "../../next.config";
+import {
+  apiRuntimeCacheRule,
+  pwaBuildExcludes,
+} from "../../next.config";
 
 describe("PWA API cache rule", () => {
   it("matches same-origin API and tRPC URLs", () => {
@@ -13,5 +16,16 @@ describe("PWA API cache rule", () => {
 
   it("never falls back to a cache", () => {
     expect(apiRuntimeCacheRule.handler).toBe("NetworkOnly");
+  });
+});
+
+describe("PWA precache exclusions", () => {
+  it.each([
+    "app-build-manifest.json",
+    "dynamic-css-manifest.json",
+  ])("excludes Vercel-unserved build asset %s", (assetName) => {
+    expect(pwaBuildExcludes.some((pattern) => pattern.test(assetName))).toBe(
+      true,
+    );
   });
 });

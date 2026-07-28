@@ -6,12 +6,20 @@ export const apiRuntimeCacheRule = {
   handler: "NetworkOnly" as const,
 };
 
+// Vercel does not serve these internal Next.js manifests after deployment.
+// Precaching either file makes the whole service-worker install fail.
+export const pwaBuildExcludes = [
+  /(?:^|\/)app-build-manifest\.json$/,
+  /(?:^|\/)dynamic-css-manifest\.json$/,
+];
+
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const withPWA = require("next-pwa")({
   dest: "public",
   register: true,
   skipWaiting: true,
   customWorkerDir: "worker",
+  buildExcludes: pwaBuildExcludes,
   runtimeCaching: [
     {
       urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
