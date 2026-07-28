@@ -14,7 +14,7 @@ describe("rest alert job publishing", () => {
 
     const result = await publisher.publish({
       restId: "f3d8f90a-cc85-41f2-aaed-b97830f8dbd0",
-      token: "rest-token-0123456789",
+      token: "ed71ff14-53fe-4b06-9c15-85e58a769fa9",
       dueAt: new Date("2026-07-27T12:00:30.000Z"),
       now: new Date("2026-07-27T12:00:00.250Z"),
     });
@@ -24,12 +24,11 @@ describe("rest alert job publishing", () => {
       url: "https://workouts.example/api/rest-alerts/dispatch",
       body: {
         restId: "f3d8f90a-cc85-41f2-aaed-b97830f8dbd0",
-        token: "rest-token-0123456789",
+        token: "ed71ff14-53fe-4b06-9c15-85e58a769fa9",
       },
       delay: "30s",
       retries: 3,
-      deduplicationId:
-        "rest:f3d8f90a-cc85-41f2-aaed-b97830f8dbd0:rest-token-0123456789",
+      deduplicationId: "ed71ff1453fe4b069c1585e58a769fa9",
       label: ["rest-alert"],
     });
   });

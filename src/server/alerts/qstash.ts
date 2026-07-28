@@ -45,7 +45,7 @@ export function createRestAlertPublisher(
         body: { restId: input.restId, token: input.token },
         delay: `${BigInt(delaySeconds)}s`,
         retries: 3,
-        deduplicationId: `rest:${input.restId}:${input.token}`,
+        deduplicationId: input.token.replaceAll("-", ""),
         label: ["rest-alert"],
       });
 
