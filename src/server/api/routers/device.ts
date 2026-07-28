@@ -20,6 +20,7 @@ import { createSubscriptionService } from "@/server/alerts/subscriptions";
 import { restAlertControllerHooks } from "@/server/alerts/rest-hooks";
 import { isAllowedPushEndpoint } from "@/server/alerts/push-endpoint";
 import { getRestAlertDiagnostics } from "@/server/alerts/telemetry-db";
+import { getPushProviderDetail } from "@/server/alerts/web-push";
 import {
   ControllerError,
   handoffController,
@@ -300,7 +301,7 @@ export const deviceRouter = createTRPCRouter({
             detail:
               result.status === "accepted"
                 ? null
-                : { providerStatus: result.providerStatus },
+                : getPushProviderDetail(result),
           });
           if (result.status === "expired") {
             await createSubscriptionService(

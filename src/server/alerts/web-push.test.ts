@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   buildRestAlertPayload,
   createWebPushSender,
+  getPushProviderDetail,
   type PushTransport,
 } from "./web-push";
 
@@ -87,4 +88,83 @@ describe("Web Push", () => {
       ).resolves.toEqual({ status: "expired", providerStatus: statusCode });
     }
   );
+
+  it("keeps only Apple's safe rejection reason", async () => {
+    const transport: PushTransport = {
+      sendNotification: vi.fn().mockRejectedValue({
+        statusCode: 400,
+        body: JSON.stringify({
+          reason: "BadWebPushRequest",
+          diagnostic: "do not persist raw provider data",
+        }),
+        endpoint: "https://web.push.apple.com/private-subscription",
+      }),
+    };
+    const sender = createWebPushSender(transport, {
+      subject: "mailto:alerts@example.com",
+      publicKey: "public",
+      privateKey: "private",
+    });
+
+    const result = await sender.send(
+        {
+          endpoint: "https://web.push.apple.com/private-subscription",
+          p256dh: "p256dh",
+          auth: "auth",
+        },
+        {
+          version: 1,
+          kind: "readiness-test",
+          alertId: "f3d8f90a-cc85-41f2-aaed-b97830f8dbd0",
+          attemptNonce: "ready-random-nonce-123456",
+          deepLink: "/sessions",
+        }
+      );
+    expect(result).toEqual({
+      status: "rejected",
+      providerStatus: 400,
+      providerReason: "BadWebPushRequest",
+    });
+    expect(getPushProviderDetail(result)).toEqual({
+      providerStatus: 400,
+      providerReason: "BadWebPushRequest",
+    });
+  });
+
+  it.each([
+    "not-json",
+    JSON.stringify({}),
+    JSON.stringify({ reason: 400 }),
+    JSON.stringify({ reason: "Bad request\nprivate diagnostic" }),
+    JSON.stringify({ reason: "A".repeat(101) }),
+  ])("drops an unsafe provider body %#", async (body) => {
+    const transport: PushTransport = {
+      sendNotification: vi.fn().mockRejectedValue({
+        statusCode: 400,
+        body,
+      }),
+    };
+    const sender = createWebPushSender(transport, {
+      subject: "mailto:alerts@example.com",
+      publicKey: "public",
+      privateKey: "private",
+    });
+
+    const result = await sender.send(
+        {
+          endpoint: "https://web.push.apple.com/private-subscription",
+          p256dh: "p256dh",
+          auth: "auth",
+        },
+        {
+          version: 1,
+          kind: "readiness-test",
+          alertId: "f3d8f90a-cc85-41f2-aaed-b97830f8dbd0",
+          attemptNonce: "ready-random-nonce-123456",
+          deepLink: "/sessions",
+        }
+      );
+    expect(result).toEqual({ status: "rejected", providerStatus: 400 });
+    expect(getPushProviderDetail(result)).toEqual({ providerStatus: 400 });
+  });
 });

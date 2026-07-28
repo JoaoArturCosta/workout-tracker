@@ -23,6 +23,7 @@ import type {
   CurrentRestAlert,
   RestDispatchRepository,
 } from "./dispatch-service";
+import { getPushProviderDetail } from "./web-push";
 
 const currentSet = alias(sessionSets, "rest_current_set");
 const currentExercise = alias(sessionExercises, "rest_current_exercise");
@@ -145,10 +146,7 @@ export function createRestDispatchRepository(
           eventType:
             result.status === "accepted" ? "PushAccepted" : "PushRejected",
           occurredAt: new Date(),
-          detail:
-            "providerStatus" in result
-              ? { providerStatus: result.providerStatus }
-              : null,
+          detail: getPushProviderDetail(result),
         });
 
         if (result.status !== "rejected") {

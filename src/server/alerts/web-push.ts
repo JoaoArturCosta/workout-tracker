@@ -34,7 +34,16 @@ export interface VapidConfig {
 export type PushSendResult =
   | { status: "accepted"; providerStatus: number }
   | { status: "expired"; providerStatus: 404 | 410 }
-  | { status: "rejected"; providerStatus?: number };
+  | {
+      status: "rejected";
+      providerStatus?: number;
+      providerReason?: string;
+    };
+
+export interface PushProviderDetail {
+  providerStatus?: number;
+  providerReason?: string;
+}
 
 interface RestDisplayInput {
   alertId: string;
@@ -117,13 +126,29 @@ export function createWebPushSender(
         if (providerStatus === 404 || providerStatus === 410) {
           return { status: "expired", providerStatus };
         }
+        const providerReason = readProviderReason(error);
         return {
           status: "rejected",
           ...(providerStatus === undefined ? {} : { providerStatus }),
+          ...(providerReason === undefined ? {} : { providerReason }),
         };
       }
     },
   };
+}
+
+export function getPushProviderDetail(
+  result: PushSendResult
+): PushProviderDetail | null {
+  const detail: PushProviderDetail = {
+    ...(result.providerStatus === undefined
+      ? {}
+      : { providerStatus: result.providerStatus }),
+    ...(result.status === "rejected" && result.providerReason
+      ? { providerReason: result.providerReason }
+      : {}),
+  };
+  return Object.keys(detail).length === 0 ? null : detail;
 }
 
 function readStatusCode(error: unknown): number | undefined {
@@ -134,6 +159,33 @@ function readStatusCode(error: unknown): number | undefined {
     typeof error.statusCode === "number"
   ) {
     return error.statusCode;
+  }
+  return undefined;
+}
+
+function readProviderReason(error: unknown): string | undefined {
+  if (
+    typeof error !== "object" ||
+    error === null ||
+    !("body" in error) ||
+    typeof error.body !== "string"
+  ) {
+    return undefined;
+  }
+
+  try {
+    const body: unknown = JSON.parse(error.body);
+    if (
+      typeof body === "object" &&
+      body !== null &&
+      "reason" in body &&
+      typeof body.reason === "string" &&
+      /^[A-Za-z][A-Za-z0-9_-]{0,99}$/.test(body.reason)
+    ) {
+      return body.reason;
+    }
+  } catch {
+    return undefined;
   }
   return undefined;
 }
