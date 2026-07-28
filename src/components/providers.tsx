@@ -4,6 +4,7 @@ import { SessionProvider } from "next-auth/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { api, trpcClient } from "@/lib/trpc";
 import { Toaster } from "@/components/ui/sonner";
+import { ServiceWorkerRegistration } from "@/components/service-worker-registration";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -54,6 +55,7 @@ export function Providers({ children }: ProvidersProps) {
 
   return (
     <SessionProvider>
+      <ServiceWorkerRegistration />
       <api.Provider client={trpcClient} queryClient={queryClient}>
         <QueryClientProvider client={queryClient}>
           {children}
