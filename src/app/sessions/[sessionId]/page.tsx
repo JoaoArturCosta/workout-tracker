@@ -1,6 +1,7 @@
 "use client";
 
 import { use, useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { signIn, useSession } from "next-auth/react";
 import { api } from "@/lib/trpc";
 import type { SessionWithExercises } from "@/lib/types";
@@ -19,7 +20,7 @@ import { PreviousSessionValues } from "@/components/sessions/previous-session-va
 import { ControllerControls } from "@/components/sessions/controller-controls";
 import { SyncConflictDialog } from "@/components/sessions/sync-conflict-dialog";
 import { SyncStatus } from "@/components/sessions/sync-status";
-import { LogIn } from "lucide-react";
+import { ArrowLeft, LogIn } from "lucide-react";
 import { toast } from "sonner";
 
 interface SessionPageProps { params: Promise<{ sessionId: string }> }
@@ -59,8 +60,9 @@ export default function SessionPage({ params }: SessionPageProps) {
     return { revision: response.result.revision, snapshot: next && { sessionId, revision: response.result.revision, controllerEpoch: response.result.controllerEpoch, controllerDeviceId: entry.envelope.deviceId, status: response.result.status, data: next, updatedAt: Date.now() } };
   }, [commandMutation, query, sessionId, utils.session.getCurrent, utils.session.getHistory]);
   const active = useActiveWorkout<SessionWithExercises>({ sessionId, initialSnapshot, sendCommand: sendQueuedCommand, optimisticUpdate: applyOptimisticWorkoutCommand });
-  const workout = active.snapshot?.data ?? session;
-  const status = active.snapshot?.status ?? workout?.status;
+  const serverEnded = session != null && session.status !== "Active";
+  const workout = serverEnded ? session : active.snapshot?.data ?? session;
+  const status = serverEnded ? session?.status : active.snapshot?.status ?? workout?.status;
   const readOnly = active.isReadOnly || status !== "Active" || !controllerQuery.data || controllerQuery.data.controllerState === "ReadOnly";
   const exercises = useMemo<ChecklistExercise[]>(() => workout?.occurrences.map((occurrence) => ({ id: occurrence.id, exerciseName: occurrence.exerciseName, mode: occurrence.mode, repsMin: occurrence.repsMin, repsMax: occurrence.repsMax, targetSeconds: occurrence.targetSeconds, sets: occurrence.sets.map((set) => ({ id: set.id, setNumber: set.setNumber, status: set.status, actualReps: set.actualReps, actualSeconds: set.actualSeconds, externalLoadKg: set.externalLoadKg, rpe: set.rpe })) })) ?? [], [workout]);
   const flatSets = useMemo(() => exercises.flatMap((exercise) => exercise.sets.map((set) => ({ exercise, set }))), [exercises]);
@@ -101,14 +103,16 @@ export default function SessionPage({ params }: SessionPageProps) {
     return active.completeSet({ type: "CompleteSet", sessionSetId: setId, result });
   };
   const finishWorkout = () => { const last = [...flatSets].reverse().find(({ set }) => set.status === "Completed"); const source = last && workout.occurrences.flatMap((occurrence) => occurrence.sets).find((set) => set.id === last.set.id); const result = source && resultFromSet(source); if (source && result) void active.finish({ type: "Finish", sessionSetId: source.id, result }); };
+  const ended = serverEnded;
   return <main className="container mx-auto max-w-3xl space-y-5 p-4 sm:p-6">
+    {ended && <Button variant="ghost" size="sm" asChild className="-ml-3 w-fit"><Link href="/progress"><ArrowLeft />Back to history</Link></Button>}
     <WorkoutHeader name={workout.templateName} status={status ?? workout.status} completedSets={completedSets} totalSets={allSets} startedAt={String(workout.startTime)} />
-    <SyncStatus state={active.syncState} pendingCount={active.outbox.length} errorMessage={active.error?.message} />
-    <WorkoutActions onDeviceControl={deviceId ? () => setControllerOpen(true) : undefined} canUndo={!readOnly && completedSets > 0} canFinish={!readOnly && completedSets === allSets && allSets > 0} onUndo={readOnly ? undefined : () => { const last = [...flatSets].reverse().find(({ set }) => set.status === "Completed"); if (last) void active.undoSet({ type: "Undo", sessionSetId: last.set.id }); }} onFinish={readOnly ? undefined : finishWorkout} onEnd={readOnly ? undefined : () => void active.end()} onDiscard={readOnly ? undefined : () => void active.discard()} />
-    {deviceId && <ControllerControls open={controllerOpen} onOpenChange={setControllerOpen} hideTrigger controllerState={controllerQuery.data?.controllerState ?? "ReadOnly"} controllerDeviceId={controllerQuery.data?.controllerDeviceId ?? workout.controllerDeviceId} controllerEpoch={controllerQuery.data?.controllerEpoch ?? workout.controllerEpoch} acknowledgedRevision={controllerQuery.data?.revision ?? workout.revision} pendingOperationCount={active.outbox.length} disabled={handoffMutation.isPending || replaceMutation.isPending} onHandoff={(nextDeviceId) => handoffMutation.mutate({ sessionId, currentDeviceId: deviceId, nextDeviceId, controllerEpoch: controllerQuery.data?.controllerEpoch ?? workout.controllerEpoch, acknowledgedRevision: controllerQuery.data?.revision ?? workout.revision, pendingOperationCount: active.outbox.length })} onReplaceLostDevice={() => { if (window.confirm("Replace the lost controller? Unsynced changes may be lost.")) replaceMutation.mutate({ sessionId, nextDeviceId: deviceId, controllerEpoch: controllerQuery.data?.controllerEpoch ?? workout.controllerEpoch, confirmUnsyncedDataLoss: true }); }} />}
+    {!ended && <SyncStatus state={active.syncState} pendingCount={active.outbox.length} errorMessage={active.error?.message} />}
+    {!ended && <WorkoutActions onDeviceControl={deviceId ? () => setControllerOpen(true) : undefined} canUndo={!readOnly && completedSets > 0} canFinish={!readOnly && completedSets === allSets && allSets > 0} onUndo={readOnly ? undefined : () => { const last = [...flatSets].reverse().find(({ set }) => set.status === "Completed"); if (last) void active.undoSet({ type: "Undo", sessionSetId: last.set.id }); }} onFinish={readOnly ? undefined : finishWorkout} onEnd={readOnly ? undefined : () => void active.end()} onDiscard={readOnly ? undefined : () => void active.discard()} />}
+    {!ended && deviceId && <ControllerControls open={controllerOpen} onOpenChange={setControllerOpen} hideTrigger controllerState={controllerQuery.data?.controllerState ?? "ReadOnly"} controllerDeviceId={controllerQuery.data?.controllerDeviceId ?? workout.controllerDeviceId} controllerEpoch={controllerQuery.data?.controllerEpoch ?? workout.controllerEpoch} acknowledgedRevision={controllerQuery.data?.revision ?? workout.revision} pendingOperationCount={active.outbox.length} disabled={handoffMutation.isPending || replaceMutation.isPending} onHandoff={(nextDeviceId) => handoffMutation.mutate({ sessionId, currentDeviceId: deviceId, nextDeviceId, controllerEpoch: controllerQuery.data?.controllerEpoch ?? workout.controllerEpoch, acknowledgedRevision: controllerQuery.data?.revision ?? workout.revision, pendingOperationCount: active.outbox.length })} onReplaceLostDevice={() => { if (window.confirm("Replace the lost controller? Unsynced changes may be lost.")) replaceMutation.mutate({ sessionId, nextDeviceId: deviceId, controllerEpoch: controllerQuery.data?.controllerEpoch ?? workout.controllerEpoch, confirmUnsyncedDataLoss: true }); }} />}
     {rest && !readOnly && <RestTimer startedAt={rest.startedAt} dueAt={rest.dueAt} onSkip={() => void active.queueCommand({ type: "SkipRest" })} />}
     <Card><CardHeader><CardTitle>Exercises</CardTitle></CardHeader><CardContent><WorkoutChecklist exercises={exercises} prior={priorQuery.data} priorSelection={selected ? { exerciseId: selected.exercise.id, setId: selected.set.id } : null} readOnly={readOnly} onSelectionChange={handleChecklistSelection} onSkipSet={!readOnly && canSkipCurrent ? (setId) => void active.skipSet({ type: "SkipSet", sessionSetId: setId }) : undefined} onSaveSet={(setId, result) => { const source = flatSets.find(({ set }) => set.id === setId); if (!source || readOnly) return; const normalized: SetResult = source.exercise.mode === "Duration" ? { mode: "Duration", externalLoadKg: result.externalLoadKg, actualSeconds: result.actualSeconds ?? 1, actualReps: null, rpe: result.rpe } : { mode: "Reps", externalLoadKg: result.externalLoadKg, actualReps: result.actualReps ?? 1, actualSeconds: null, rpe: result.rpe }; if (source.set.status === "Pending" && source.set.id === current?.set.id) { void completeSet(setId, normalized); } else { void active.queueCommand({ type: "SaveSet", sessionSetId: setId, result: normalized }); } }} /></CardContent></Card>
-    {selectedOccurrence && selected && <PreviousSessionValues exerciseId={selectedOccurrence.exerciseId} mode={selectedOccurrence.mode} setNumber={selected.set.setNumber} prior={priorQuery.data ?? null} />}
-    {active.syncState === "sync-conflicted" && active.snapshot && initialSnapshot && <SyncConflictDialog sessionId={sessionId} snapshot={active.snapshot} serverSnapshot={initialSnapshot} onResolved={async () => { await active.refresh(); await query.refetch(); }} />}
+    {!ended && selectedOccurrence && selected && <PreviousSessionValues exerciseId={selectedOccurrence.exerciseId} mode={selectedOccurrence.mode} setNumber={selected.set.setNumber} prior={priorQuery.data ?? null} />}
+    {!ended && active.syncState === "sync-conflicted" && active.snapshot && initialSnapshot && <SyncConflictDialog sessionId={sessionId} snapshot={active.snapshot} serverSnapshot={initialSnapshot} onResolved={async () => { await active.refresh(); await query.refetch(); }} />}
   </main>;
 }

@@ -134,6 +134,21 @@ describe("WorkoutChecklist", () => {
     expect(screen.getByTestId("set-inline-editor")).toBeInTheDocument();
   });
 
+  it("shows saved weight and reps without edit controls in read-only history", () => {
+    render(
+      <WorkoutChecklist
+        exercises={[exercise("squat", "Squat", ["Completed"])]}
+        readOnly
+      />
+    );
+
+    expect(screen.getByText("50 kg · 8 reps")).toBeVisible();
+    expect(screen.queryByTestId("set-inline-editor")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("checkbox", { name: "Complete Squat set 1" })
+    ).toBeDisabled();
+  });
+
   it("propagates a set selection across exercises", async () => {
     const user = userEvent.setup();
     const onSelectionChange = vi.fn();
