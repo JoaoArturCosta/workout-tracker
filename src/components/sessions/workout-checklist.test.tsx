@@ -183,4 +183,47 @@ describe("WorkoutChecklist", () => {
 
     expect(screen.getByRole("checkbox", { name: "Complete Squat set 1" })).toBeDisabled();
   });
+
+  it("completes from the keyboard and focuses the next set", async () => {
+    const user = userEvent.setup();
+    const onCompleteSet = vi.fn();
+    render(<WorkoutChecklist exercises={[exercise("squat", "Squat", ["Pending", "Pending"])]} onCompleteSet={onCompleteSet} />);
+
+    const firstRow = screen.getByTestId("set-row-1");
+    expect(within(firstRow).getByRole("checkbox", { name: "Complete Squat set 1" })).toBeEnabled();
+    await user.click(within(firstRow).getByRole("button", { name: /Set 1 Reps/ }));
+    const weight = screen.getByLabelText("Weight");
+    await user.type(weight, "50");
+    await user.keyboard("{Enter}");
+    await user.type(screen.getByLabelText("Reps"), "8");
+    await user.keyboard("{Enter}");
+
+    expect(onCompleteSet).toHaveBeenCalledWith("squat-set-1", { externalLoadKg: 50, actualReps: 8, rpe: null });
+    expect(screen.getByTestId("set-row-2")).toHaveAttribute("data-selected", "true");
+    expect(screen.getByLabelText("Weight")).toHaveFocus();
+  });
+
+  it("stays on the set when completion is cancelled", async () => {
+    const user = userEvent.setup();
+    const onCompleteSet = vi.fn(() => false);
+    render(<WorkoutChecklist exercises={[exercise("squat", "Squat", ["Pending", "Pending"])]} onCompleteSet={onCompleteSet} />);
+
+    await user.type(screen.getByLabelText("Reps"), "8");
+    await user.keyboard("{Enter}");
+
+    expect(screen.getByTestId("set-row-1")).toHaveAttribute("data-selected", "true");
+    expect(screen.getByTestId("set-row-2")).not.toHaveAttribute("data-selected");
+  });
+
+  it("uncompletes a checked set", async () => {
+    const user = userEvent.setup();
+    const onUncompleteSet = vi.fn();
+    render(<WorkoutChecklist exercises={[exercise("squat", "Squat", ["Completed", "Pending"])]} onUncompleteSet={onUncompleteSet} />);
+
+    const checkbox = screen.getByRole("checkbox", { name: "Complete Squat set 1" });
+    expect(checkbox).toBeEnabled();
+    await user.click(checkbox);
+
+    expect(onUncompleteSet).toHaveBeenCalledWith("squat-set-1");
+  });
 });

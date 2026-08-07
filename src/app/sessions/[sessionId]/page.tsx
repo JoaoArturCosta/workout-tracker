@@ -14,6 +14,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { WorkoutHeader } from "@/components/sessions/workout-header";
 import { WorkoutChecklist, type ChecklistExercise } from "@/components/sessions/workout-checklist";
+import type { SetChecklistResult } from "@/components/sessions/set-checklist-row";
 import { WorkoutActions } from "@/components/sessions/workout-actions";
 import { RestTimer } from "@/components/sessions/rest-timer";
 import { PreviousSessionValues } from "@/components/sessions/previous-session-values";
@@ -25,10 +26,11 @@ import { toast } from "sonner";
 
 interface SessionPageProps { params: Promise<{ sessionId: string }> }
 interface ChecklistSelection { exerciseId: string; setId: string }
-function resultFromSet(set: SessionWithExercises["occurrences"][number]["sets"][number]): SetResult | null {
-  return set.mode === "Duration"
-    ? set.actualSeconds == null ? null : { mode: "Duration", externalLoadKg: set.externalLoadKg, actualSeconds: set.actualSeconds, actualReps: null, rpe: set.rpe }
-    : set.actualReps == null ? null : { mode: "Reps", externalLoadKg: set.externalLoadKg, actualReps: set.actualReps, actualSeconds: null, rpe: set.rpe };
+
+function normalizeSetResult(mode: ChecklistExercise["mode"], result: { externalLoadKg: number; actualReps?: number; actualSeconds?: number; rpe: number | null }): SetResult {
+  return mode === "Duration"
+    ? { mode: "Duration", externalLoadKg: result.externalLoadKg, actualSeconds: result.actualSeconds ?? 1, actualReps: null, rpe: result.rpe }
+    : { mode: "Reps", externalLoadKg: result.externalLoadKg, actualReps: result.actualReps ?? 1, actualSeconds: null, rpe: result.rpe };
 }
 
 export default function SessionPage({ params }: SessionPageProps) {
@@ -98,20 +100,36 @@ export default function SessionPage({ params }: SessionPageProps) {
 
   const completeSet = (setId: string, result: SetResult) => {
     const finalSet = flatSets.filter(({ set }) => set.status === "Pending").length === 1;
-    if (finalSet && !window.confirm("Finish this workout?")) return;
-    if (finalSet) return active.finish({ type: "Finish", sessionSetId: setId, result });
-    return active.completeSet({ type: "CompleteSet", sessionSetId: setId, result });
+    if (finalSet && !window.confirm("Complete this workout?")) return false;
+    if (finalSet) void active.finish({ type: "Finish", sessionSetId: setId, result });
+    else void active.completeSet({ type: "CompleteSet", sessionSetId: setId, result });
+    return true;
   };
-  const finishWorkout = () => { const last = [...flatSets].reverse().find(({ set }) => set.status === "Completed"); const source = last && workout.occurrences.flatMap((occurrence) => occurrence.sets).find((set) => set.id === last.set.id); const result = source && resultFromSet(source); if (source && result) void active.finish({ type: "Finish", sessionSetId: source.id, result }); };
+  const completeChecklistSet = (setId: string, result: SetChecklistResult) => {
+    const source = flatSets.find(({ set }) => set.id === setId);
+    if (!source || readOnly) return false;
+    const normalized = normalizeSetResult(source.exercise.mode, result);
+    if (source.set.id === current?.set.id) return completeSet(setId, normalized);
+    void active.queueCommand({ type: "SaveSet", sessionSetId: setId, result: normalized });
+    return true;
+  };
+  const uncompleteChecklistSet = (setId: string) => {
+    if (!readOnly) void active.undoSet({ type: "Undo", sessionSetId: setId });
+  };
+  const saveChecklistSet = (setId: string, result: SetChecklistResult) => {
+    const source = flatSets.find(({ set }) => set.id === setId);
+    if (!source || readOnly || source.set.status !== "Completed") return;
+    void active.queueCommand({ type: "EditCompletedSet", sessionSetId: setId, result: normalizeSetResult(source.exercise.mode, result) });
+  };
   const ended = serverEnded;
   return <main className="container mx-auto max-w-3xl space-y-5 p-4 sm:p-6">
     {ended && <Button variant="ghost" size="sm" asChild className="-ml-3 w-fit"><Link href="/progress"><ArrowLeft />Back to history</Link></Button>}
     <WorkoutHeader name={workout.templateName} status={status ?? workout.status} completedSets={completedSets} totalSets={allSets} startedAt={String(workout.startTime)} />
     {!ended && <SyncStatus state={active.syncState} pendingCount={active.outbox.length} errorMessage={active.error?.message} />}
-    {!ended && <WorkoutActions onDeviceControl={deviceId ? () => setControllerOpen(true) : undefined} canUndo={!readOnly && completedSets > 0} canFinish={!readOnly && completedSets === allSets && allSets > 0} onUndo={readOnly ? undefined : () => { const last = [...flatSets].reverse().find(({ set }) => set.status === "Completed"); if (last) void active.undoSet({ type: "Undo", sessionSetId: last.set.id }); }} onFinish={readOnly ? undefined : finishWorkout} onEnd={readOnly ? undefined : () => void active.end()} onDiscard={readOnly ? undefined : () => void active.discard()} />}
+    {!ended && <WorkoutActions onDeviceControl={deviceId ? () => setControllerOpen(true) : undefined} canUndo={!readOnly && completedSets > 0} onUndo={readOnly ? undefined : () => { const last = [...flatSets].reverse().find(({ set }) => set.status === "Completed"); if (last) void active.undoSet({ type: "Undo", sessionSetId: last.set.id }); }} onEnd={readOnly ? undefined : () => void active.end()} onDiscard={readOnly ? undefined : () => void active.discard()} />}
     {!ended && deviceId && <ControllerControls open={controllerOpen} onOpenChange={setControllerOpen} hideTrigger controllerState={controllerQuery.data?.controllerState ?? "ReadOnly"} controllerDeviceId={controllerQuery.data?.controllerDeviceId ?? workout.controllerDeviceId} controllerEpoch={controllerQuery.data?.controllerEpoch ?? workout.controllerEpoch} acknowledgedRevision={controllerQuery.data?.revision ?? workout.revision} pendingOperationCount={active.outbox.length} disabled={handoffMutation.isPending || replaceMutation.isPending} onHandoff={(nextDeviceId) => handoffMutation.mutate({ sessionId, currentDeviceId: deviceId, nextDeviceId, controllerEpoch: controllerQuery.data?.controllerEpoch ?? workout.controllerEpoch, acknowledgedRevision: controllerQuery.data?.revision ?? workout.revision, pendingOperationCount: active.outbox.length })} onReplaceLostDevice={() => { if (window.confirm("Replace the lost controller? Unsynced changes may be lost.")) replaceMutation.mutate({ sessionId, nextDeviceId: deviceId, controllerEpoch: controllerQuery.data?.controllerEpoch ?? workout.controllerEpoch, confirmUnsyncedDataLoss: true }); }} />}
     {rest && !readOnly && <RestTimer startedAt={rest.startedAt} dueAt={rest.dueAt} onSkip={() => void active.queueCommand({ type: "SkipRest" })} />}
-    <Card><CardHeader><CardTitle>Exercises</CardTitle></CardHeader><CardContent><WorkoutChecklist exercises={exercises} prior={priorQuery.data} priorSelection={selected ? { exerciseId: selected.exercise.id, setId: selected.set.id } : null} readOnly={readOnly} onSelectionChange={handleChecklistSelection} onSkipSet={!readOnly && canSkipCurrent ? (setId) => void active.skipSet({ type: "SkipSet", sessionSetId: setId }) : undefined} onSaveSet={(setId, result) => { const source = flatSets.find(({ set }) => set.id === setId); if (!source || readOnly) return; const normalized: SetResult = source.exercise.mode === "Duration" ? { mode: "Duration", externalLoadKg: result.externalLoadKg, actualSeconds: result.actualSeconds ?? 1, actualReps: null, rpe: result.rpe } : { mode: "Reps", externalLoadKg: result.externalLoadKg, actualReps: result.actualReps ?? 1, actualSeconds: null, rpe: result.rpe }; if (source.set.status === "Pending" && source.set.id === current?.set.id) { void completeSet(setId, normalized); } else { void active.queueCommand({ type: "SaveSet", sessionSetId: setId, result: normalized }); } }} /></CardContent></Card>
+    <Card><CardHeader><CardTitle>Exercises</CardTitle></CardHeader><CardContent><WorkoutChecklist exercises={exercises} prior={priorQuery.data} priorSelection={selected ? { exerciseId: selected.exercise.id, setId: selected.set.id } : null} readOnly={readOnly} onSelectionChange={handleChecklistSelection} onCompleteSet={completeChecklistSet} onUncompleteSet={uncompleteChecklistSet} onSkipSet={!readOnly && canSkipCurrent ? (setId) => void active.skipSet({ type: "SkipSet", sessionSetId: setId }) : undefined} onSaveSet={saveChecklistSet} /></CardContent></Card>
     {!ended && selectedOccurrence && selected && <PreviousSessionValues exerciseId={selectedOccurrence.exerciseId} mode={selectedOccurrence.mode} setNumber={selected.set.setNumber} prior={priorQuery.data ?? null} />}
     {!ended && active.syncState === "sync-conflicted" && active.snapshot && initialSnapshot && <SyncConflictDialog sessionId={sessionId} snapshot={active.snapshot} serverSnapshot={initialSnapshot} onResolved={async () => { await active.refresh(); await query.refetch(); }} />}
   </main>;

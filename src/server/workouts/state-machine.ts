@@ -29,7 +29,6 @@ export type WorkoutTransitionErrorCode =
   | "SET_IS_CURRENT"
   | "SET_NOT_SKIPPED"
   | "SET_NOT_COMPLETED"
-  | "NOT_LATEST_COMPLETION"
   | "FINAL_SET_REQUIRES_FINISH"
   | "FINISH_REQUIRES_FINAL_SET";
 
@@ -86,23 +85,6 @@ const replaceSet = (
     set.id === setId ? { ...set, ...update } : set
   ),
 });
-
-const latestCompletedSet = (
-  workout: WorkoutState
-): WorkoutStateSet | undefined => {
-  let latest: WorkoutStateSet | undefined;
-  for (const set of workout.sets) {
-    if (set.status !== "Completed" || !set.completedAt) continue;
-    if (
-      !latest ||
-      !latest.completedAt ||
-      set.completedAt >= latest.completedAt
-    ) {
-      latest = set;
-    }
-  }
-  return latest;
-};
 
 export const applyWorkoutTransition = (
   workout: WorkoutState,
@@ -201,12 +183,6 @@ export const applyWorkoutTransition = (
         throw new WorkoutTransitionError(
           "SET_NOT_COMPLETED",
           "Only a completed set can be undone"
-        );
-      }
-      if (latestCompletedSet(workout)?.id !== transition.setId) {
-        throw new WorkoutTransitionError(
-          "NOT_LATEST_COMPLETION",
-          "Only the latest completion can be undone"
         );
       }
       return replaceSet(workout, transition.setId, {

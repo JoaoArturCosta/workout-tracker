@@ -16,11 +16,11 @@ const baseProps = {
 };
 
 describe("SetChecklistRow", () => {
-  it("uses the shadcn checkbox for the current set", async () => {
+  it("completes a set from its checkbox", async () => {
     const user = userEvent.setup();
     const onComplete = vi.fn();
 
-    render(<SetChecklistRow {...baseProps} onComplete={onComplete} />);
+    render(<SetChecklistRow {...baseProps} selected actualReps={8} onComplete={onComplete} />);
 
     const checkbox = screen.getByRole("checkbox", { name: "Complete Squat set 1" });
     expect(checkbox).toBeEnabled();
@@ -28,17 +28,36 @@ describe("SetChecklistRow", () => {
 
     await user.click(checkbox);
 
-    expect(onComplete).toHaveBeenCalledOnce();
+    expect(onComplete).toHaveBeenCalledWith({ externalLoadKg: 0, actualReps: 8, rpe: null });
   });
 
-  it("keeps completed, skipped, and waiting sets disabled", () => {
-    const { rerender } = render(<SetChecklistRow {...baseProps} status="Completed" current={false} />);
-    expect(screen.getByRole("checkbox", { name: "Complete Squat set 1" })).toBeDisabled();
+  it("allows completion to be retried after confirmation is cancelled", async () => {
+    const user = userEvent.setup();
+    const onComplete = vi.fn(() => false);
+    render(<SetChecklistRow {...baseProps} selected actualReps={8} onComplete={onComplete} />);
 
-    rerender(<SetChecklistRow {...baseProps} status="Skipped" current />);
-    expect(screen.getByRole("checkbox", { name: "Complete Squat set 1" })).toBeDisabled();
+    const checkbox = screen.getByRole("checkbox", { name: "Complete Squat set 1" });
+    await user.click(checkbox);
+    await user.click(checkbox);
 
-    rerender(<SetChecklistRow {...baseProps} current={false} />);
+    expect(onComplete).toHaveBeenCalledTimes(2);
+  });
+
+  it("toggles a completed set back to pending", async () => {
+    const user = userEvent.setup();
+    const onUncomplete = vi.fn();
+    render(<SetChecklistRow {...baseProps} status="Completed" current={false} onUncomplete={onUncomplete} />);
+
+    const checkbox = screen.getByRole("checkbox", { name: "Complete Squat set 1" });
+    expect(checkbox).toBeEnabled();
+    await user.click(checkbox);
+
+    expect(onUncomplete).toHaveBeenCalledOnce();
+  });
+
+  it("keeps skipped sets disabled", () => {
+    render(<SetChecklistRow {...baseProps} status="Skipped" current onComplete={vi.fn()} onUncomplete={vi.fn()} />);
+
     expect(screen.getByRole("checkbox", { name: "Complete Squat set 1" })).toBeDisabled();
   });
 
@@ -48,11 +67,11 @@ describe("SetChecklistRow", () => {
     expect(screen.getByTestId("set-inline-editor")).toBeInTheDocument();
   });
 
-  it("shows the inline editor and saves when required values are valid", async () => {
+  it("moves through the inputs and completes from the keyboard", async () => {
     const user = userEvent.setup();
-    const onSave = vi.fn();
+    const onComplete = vi.fn();
 
-    render(<SetChecklistRow {...baseProps} selected onSave={onSave} />);
+    render(<SetChecklistRow {...baseProps} selected onComplete={onComplete} />);
 
     expect(screen.getByTestId("set-inline-editor")).toBeInTheDocument();
     expect(screen.getByLabelText("Weight")).toHaveValue(0);
@@ -62,13 +81,17 @@ describe("SetChecklistRow", () => {
     expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Clear" })).not.toBeInTheDocument();
 
-    await user.type(screen.getByLabelText("Weight"), "50");
-    await user.type(screen.getByLabelText("Reps"), "8");
-    expect(onSave).not.toHaveBeenCalled();
-    await user.tab();
+    const weight = screen.getByLabelText("Weight");
+    const reps = screen.getByLabelText("Reps");
+    await user.type(weight, "50");
+    await user.keyboard("{Enter}");
+    expect(reps).toHaveFocus();
+    await user.type(reps, "8");
+    await user.keyboard("{Enter}");
 
-    expect(onSave).toHaveBeenCalledOnce();
-    expect(onSave).toHaveBeenCalledWith({ externalLoadKg: 50, actualReps: 8, rpe: null });
+    expect(onComplete).toHaveBeenCalledOnce();
+    expect(onComplete).toHaveBeenCalledWith({ externalLoadKg: 50, actualReps: 8, rpe: null });
+    expect(reps).not.toHaveFocus();
   });
 
   it("does not mark values outside the target as errors", () => {
@@ -97,7 +120,7 @@ describe("SetChecklistRow", () => {
     await user.clear(screen.getByLabelText("Reps"));
     await user.type(screen.getByLabelText("Reps"), "9");
     await user.tab();
-    expect(onSave).toHaveBeenCalledWith({ externalLoadKg: 50, actualReps: 9, rpe: 8 });
+    expect(onSave).not.toHaveBeenCalled();
   });
 
   it("keeps typed values when prior values arrive later", async () => {
@@ -124,20 +147,21 @@ describe("SetChecklistRow", () => {
     const user = userEvent.setup();
     const onSave = vi.fn();
 
-    const { rerender } = render(<SetChecklistRow {...baseProps} selected onSave={onSave} />);
-
-    await user.type(screen.getByLabelText("Reps"), "8");
-    await user.tab();
-    expect(onSave).toHaveBeenCalledOnce();
+    const { rerender } = render(<SetChecklistRow {...baseProps} status="Completed" current={false} selected actualReps={8} onSave={onSave} />);
 
     await user.clear(screen.getByLabelText("Reps"));
     await user.type(screen.getByLabelText("Reps"), "9");
     await user.tab();
     expect(onSave).toHaveBeenCalledOnce();
 
-    rerender(<SetChecklistRow {...baseProps} selected actualReps={8} onSave={onSave} />);
     await user.clear(screen.getByLabelText("Reps"));
-    await user.type(screen.getByLabelText("Reps"), "9");
+    await user.type(screen.getByLabelText("Reps"), "10");
+    await user.tab();
+    expect(onSave).toHaveBeenCalledOnce();
+
+    rerender(<SetChecklistRow {...baseProps} status="Completed" current={false} selected actualReps={9} onSave={onSave} />);
+    await user.clear(screen.getByLabelText("Reps"));
+    await user.type(screen.getByLabelText("Reps"), "10");
     await user.tab();
     expect(onSave).toHaveBeenCalledTimes(2);
   });
@@ -156,16 +180,16 @@ describe("SetChecklistRow", () => {
     expect(screen.getByText("Current")).toBeInTheDocument();
   });
 
-  it("saves a selected non-current pending row", async () => {
+  it("completes a selected non-current pending row", async () => {
     const user = userEvent.setup();
-    const onSave = vi.fn();
+    const onComplete = vi.fn();
 
-    render(<SetChecklistRow {...baseProps} current={false} selected onSave={onSave} />);
+    render(<SetChecklistRow {...baseProps} current={false} selected onComplete={onComplete} />);
 
     await user.type(screen.getByLabelText("Reps"), "8");
-    await user.tab();
+    await user.keyboard("{Enter}");
 
-    expect(onSave).toHaveBeenCalledWith({ externalLoadKg: 0, actualReps: 8, rpe: null });
+    expect(onComplete).toHaveBeenCalledWith({ externalLoadKg: 0, actualReps: 8, rpe: null });
   });
 
   it("disables inline controls without disabling the summary state", () => {
@@ -212,7 +236,7 @@ describe("SetChecklistRow", () => {
     const onSelect = vi.fn();
     const onComplete = vi.fn();
 
-    render(<SetChecklistRow {...baseProps} onSelect={onSelect} onComplete={onComplete} />);
+    render(<SetChecklistRow {...baseProps} actualReps={8} onSelect={onSelect} onComplete={onComplete} />);
 
     await user.click(screen.getByRole("checkbox", { name: "Complete Squat set 1" }));
 
@@ -220,14 +244,23 @@ describe("SetChecklistRow", () => {
     expect(onSelect).not.toHaveBeenCalled();
   });
 
-  it("keeps the completion checkbox on the right and locks non-current skip menus", () => {
+  it("keeps every pending checkbox enabled and locks non-current skip menus", () => {
     const { rerender } = render(<SetChecklistRow {...baseProps} onComplete={vi.fn()} onSkip={vi.fn()} />);
 
     expect(screen.getByRole("checkbox", { name: "Complete Squat set 1" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Squat set 1 options" })).toBeEnabled();
 
     rerender(<SetChecklistRow {...baseProps} current={false} onComplete={vi.fn()} onSkip={vi.fn()} />);
-    expect(screen.getByRole("checkbox", { name: "Complete Squat set 1" })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: "Complete Squat set 1" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Squat set 1 options" })).toBeDisabled();
+  });
+
+  it("focuses Weight when the row is clicked", async () => {
+    const user = userEvent.setup();
+    render(<SetChecklistRow {...baseProps} selected onSelect={vi.fn()} />);
+
+    await user.click(within(screen.getByTestId("set-row-1")).getByRole("button", { name: /Set 1 Reps/ }));
+
+    expect(screen.getByLabelText("Weight")).toHaveFocus();
   });
 });

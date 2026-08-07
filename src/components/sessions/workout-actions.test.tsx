@@ -9,7 +9,7 @@ afterEach(() => {
 });
 
 describe("WorkoutActions", () => {
-  it("puts end and discard in the workout options menu", async () => {
+  it("puts complete and discard in the workout options menu", async () => {
     const user = userEvent.setup();
     const onEnd = vi.fn();
     const onDiscard = vi.fn();
@@ -31,10 +31,14 @@ describe("WorkoutActions", () => {
 
     const menu = screen.getByRole("menu");
     expect(within(menu).queryByRole("menuitem", { name: "Skip set" })).not.toBeInTheDocument();
-    expect(within(menu).getByRole("menuitem", { name: "End early" })).toBeVisible();
+    expect(within(menu).getByRole("menuitem", { name: "Complete" })).toBeVisible();
     expect(within(menu).getByRole("menuitem", { name: "Discard" })).toHaveAttribute("data-variant", "destructive");
 
-    await user.click(within(menu).getByRole("menuitem", { name: "Discard" }));
+    await user.click(within(menu).getByRole("menuitem", { name: "Complete" }));
+    expect(onEnd).toHaveBeenCalledOnce();
+
+    await user.click(screen.getByRole("button", { name: "Workout options" }));
+    await user.click(screen.getByRole("menuitem", { name: "Discard" }));
     expect(onDiscard).toHaveBeenCalledOnce();
   });
 
@@ -54,24 +58,20 @@ describe("WorkoutActions", () => {
     const onRestore = vi.fn();
     const onUndo = vi.fn();
     const onSkipRest = vi.fn();
-    const onFinish = vi.fn();
 
     render(
       <WorkoutActions
         canRestore
         canUndo
-        canFinish
         onRestore={onRestore}
         onUndo={onUndo}
         onSkipRest={onSkipRest}
-        onFinish={onFinish}
       />
     );
 
     expect(screen.getByRole("button", { name: "Restore set" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Undo last completion" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Skip rest" })).toBeEnabled();
-    expect(screen.getByRole("button", { name: "Finish" })).toBeEnabled();
     expect(screen.queryByRole("button", { name: "Workout options" })).not.toBeInTheDocument();
   });
 });

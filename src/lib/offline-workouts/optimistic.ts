@@ -31,11 +31,12 @@ export function applyOptimisticWorkoutCommand<TData extends OptimisticWorkout>(
         return { ...set, status: "Skipped" as const, completedAt: null };
       }
       if (set.id !== setId) return set;
-      if ((command.type === "CompleteSet" || command.type === "SaveSet" || command.type === "EditCompletedSet") && command.result) {
+      if ((command.type === "CompleteSet" || command.type === "SaveSet" || command.type === "EditCompletedSet" || command.type === "Finish") && command.result) {
         return { ...set, status: "Completed" as const, completedAt: set.status === "Completed" ? set.completedAt : new Date(updatedAt), mode: command.result.mode, externalLoadKg: command.result.externalLoadKg, actualReps: command.result.actualReps ?? null, actualSeconds: command.result.actualSeconds ?? null, rpe: command.result.rpe };
       }
       if (command.type === "SkipSet") return { ...set, status: "Skipped" as const };
-      if (command.type === "RestoreSet" || command.type === "Undo") return { ...set, status: "Pending" as const };
+      if (command.type === "RestoreSet") return { ...set, status: "Pending" as const, completedAt: null };
+      if (command.type === "Undo") return { ...set, status: "Pending" as const, completedAt: null, externalLoadKg: 0, actualReps: null, actualSeconds: null, rpe: null };
       return set;
     }),
   }));

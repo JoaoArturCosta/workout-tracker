@@ -45,7 +45,10 @@ export interface SetChecklistRowProps {
   repsMax?: number | null;
   targetSeconds?: number | null;
   disabled?: boolean;
-  onComplete?: () => void;
+  focusInput?: boolean;
+  onComplete?: (result: SetChecklistResult) => boolean | void;
+  onUncomplete?: () => void;
+  onFocusHandled?: () => void;
   onSkip?: () => void;
   onSave?: (result: SetChecklistResult) => void | Promise<void>;
   onSelect?: () => void;
@@ -69,7 +72,10 @@ export function SetChecklistRow({
   repsMax,
   targetSeconds,
   disabled = false,
+  focusInput = false,
   onComplete,
+  onUncomplete,
+  onFocusHandled,
   onSkip,
   onSelect,
   onSave,
@@ -87,8 +93,11 @@ export function SetChecklistRow({
   const [effort, setEffort] = useState(String(hasOwnResult ? rpe ?? "" : priorEffort ?? rpe ?? ""));
   const submittedRef = useRef(false);
   const dirtyRef = useRef(false);
-  // Editing follows selection. SaveSet handles pending, completed, and skipped
-  // rows while the completion checkbox and skip menu stay current-only.
+  const togglingCompletionRef = useRef(false);
+  const loadInputRef = useRef<HTMLInputElement>(null);
+  const actualValueInputRef = useRef<HTMLInputElement>(null);
+  // Editing follows selection. Pending sets complete only through the checkbox
+  // or the second input's keyboard action; completed results save on blur.
   const editable = !readOnly && selected;
 
   useEffect(() => {
@@ -103,18 +112,51 @@ export function SetChecklistRow({
     submittedRef.current = false;
   }, [externalLoadKg, hasOwnResult, mode, priorEffort, priorLoad, priorValue, rpe, value]);
 
-  const saveIfReady = (nextLoad: string, nextActualValue: string, nextEffort: string) => {
-    if (!onSave || submittedRef.current || !dirtyRef.current) return;
+  useEffect(() => {
+    if (!selected || !focusInput) return;
+    loadInputRef.current?.focus();
+    onFocusHandled?.();
+  }, [focusInput, onFocusHandled, selected]);
 
+  const resultFromValues = (nextLoad: string, nextActualValue: string, nextEffort: string): SetChecklistResult | null => {
     const loadValue = Number(nextLoad);
     const parsed = Number(nextActualValue);
-    if (!Number.isFinite(loadValue) || loadValue < 0 || loadValue > 1000 || nextLoad.trim() === "" || nextActualValue.trim() === "" || !Number.isInteger(parsed) || parsed < 1 || (mode === "Duration" ? parsed > 3600 : parsed > 100)) return;
+    if (!Number.isFinite(loadValue) || loadValue < 0 || loadValue > 1000 || nextLoad.trim() === "" || nextActualValue.trim() === "" || !Number.isInteger(parsed) || parsed < 1 || (mode === "Duration" ? parsed > 3600 : parsed > 100)) return null;
 
     const effortValue = nextEffort.trim() === "" ? null : Number(nextEffort);
-    if (effortValue != null && (!Number.isInteger(effortValue) || effortValue < 6 || effortValue > 10)) return;
+    if (effortValue != null && (!Number.isInteger(effortValue) || effortValue < 6 || effortValue > 10)) return null;
+
+    return mode === "Duration"
+      ? { externalLoadKg: loadValue, actualSeconds: parsed, rpe: effortValue }
+      : { externalLoadKg: loadValue, actualReps: parsed, rpe: effortValue };
+  };
+
+  const saveIfReady = (nextLoad: string, nextActualValue: string, nextEffort: string) => {
+    if (!onSave || submittedRef.current || !dirtyRef.current) return;
+    const result = resultFromValues(nextLoad, nextActualValue, nextEffort);
+    if (!result) return;
 
     submittedRef.current = true;
-    void onSave(mode === "Duration" ? { externalLoadKg: loadValue, actualSeconds: parsed, rpe: effortValue } : { externalLoadKg: loadValue, actualReps: parsed, rpe: effortValue });
+    void onSave(result);
+  };
+
+  const complete = () => {
+    if (!onComplete || submittedRef.current) return;
+    const result = resultFromValues(load, actualValue, effort);
+    if (!result) {
+      onSelect?.();
+      window.setTimeout(() => (actualValue.trim() === "" ? actualValueInputRef : loadInputRef).current?.focus(), 0);
+      return;
+    }
+
+    submittedRef.current = true;
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    if (onComplete(result) === false) submittedRef.current = false;
+  };
+
+  const selectAndFocus = () => {
+    onSelect?.();
+    window.setTimeout(() => loadInputRef.current?.focus(), 0);
   };
 
   return (
@@ -158,12 +200,12 @@ export function SetChecklistRow({
         tabIndex={onSelect ? 0 : undefined}
         aria-pressed={onSelect ? selected : undefined}
         aria-current={selected ? "true" : undefined}
-        onClick={onSelect}
+        onClick={selectAndFocus}
         onKeyDown={(event) => {
           if (!onSelect) return;
           if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
-            onSelect();
+            selectAndFocus();
           }
         }}
       >
@@ -180,27 +222,41 @@ export function SetChecklistRow({
         <Checkbox
           aria-label={`Complete ${exerciseName} set ${setNumber}`}
           checked={completed}
-          disabled={disabled || readOnly || !current || completed || skipped || !onComplete}
-          onCheckedChange={(checked) => { if (checked === true) onComplete?.(); }}
+          disabled={disabled || readOnly || skipped || (completed ? !onUncomplete : !onComplete)}
+          onPointerDown={() => { togglingCompletionRef.current = true; }}
+          onPointerCancel={() => { togglingCompletionRef.current = false; }}
+          onCheckedChange={(checked) => {
+            if (checked === true) complete();
+            if (checked === false) onUncomplete?.();
+            togglingCompletionRef.current = false;
+          }}
         />
       </ItemActions>
       {editable && <ItemFooter className="pt-1" data-testid="set-inline-editor">
         <FieldGroup className="grid gap-3 sm:grid-cols-3">
           <Field data-disabled={disabled || undefined}>
             <FieldLabel htmlFor={`set-${setId}-external-load`}>Weight</FieldLabel>
-            <Input id={`set-${setId}-external-load`} type="number" min="0" max="1000" step="0.1" value={load} disabled={disabled} onChange={(event) => {
+            <Input ref={loadInputRef} id={`set-${setId}-external-load`} type="number" inputMode="decimal" enterKeyHint="next" min="0" max="1000" step="0.1" value={load} disabled={disabled} onChange={(event) => {
               const nextLoad = event.target.value;
               dirtyRef.current = true;
               setLoad(nextLoad);
-            }} onBlur={() => saveIfReady(load, actualValue, effort)} />
+            }} onKeyDown={(event) => {
+              if (event.key !== "Enter") return;
+              event.preventDefault();
+              actualValueInputRef.current?.focus();
+            }} onBlur={() => { if (completed && !togglingCompletionRef.current) saveIfReady(load, actualValue, effort); }} />
           </Field>
           <Field data-disabled={disabled || undefined}>
             <FieldLabel htmlFor={`set-${setId}-actual-value`}>{mode === "Duration" ? "Seconds" : "Reps"}</FieldLabel>
-            <Input id={`set-${setId}-actual-value`} type="number" min="1" max={mode === "Duration" ? 3600 : 100} step="1" value={actualValue} disabled={disabled} onChange={(event) => {
+            <Input ref={actualValueInputRef} id={`set-${setId}-actual-value`} type="number" inputMode="numeric" enterKeyHint="done" min="1" max={mode === "Duration" ? 3600 : 100} step="1" value={actualValue} disabled={disabled} onChange={(event) => {
               const nextActualValue = event.target.value;
               dirtyRef.current = true;
               setActualValue(nextActualValue);
-            }} onBlur={() => saveIfReady(load, actualValue, effort)} />
+            }} onKeyDown={(event) => {
+              if (event.key !== "Enter") return;
+              event.preventDefault();
+              complete();
+            }} onBlur={() => { if (completed && !togglingCompletionRef.current) saveIfReady(load, actualValue, effort); }} />
           </Field>
           <Field data-disabled={disabled || undefined}>
             <FieldLabel htmlFor={`set-${setId}-rpe`}>RPE</FieldLabel>
@@ -208,7 +264,7 @@ export function SetChecklistRow({
               const nextEffort = event.target.value;
               dirtyRef.current = true;
               setEffort(nextEffort);
-            }} onBlur={() => saveIfReady(load, actualValue, effort)} />
+            }} onBlur={() => { if (completed && !togglingCompletionRef.current) saveIfReady(load, actualValue, effort); }} />
           </Field>
         </FieldGroup>
       </ItemFooter>}

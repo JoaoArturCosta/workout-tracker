@@ -34,7 +34,8 @@ export interface WorkoutChecklistProps {
   readOnly?: boolean;
   disabled?: boolean;
   onSelectionChange?: (selection: { exerciseId: string; setId: string }) => void;
-  onCompleteSet?: (setId: string) => void;
+  onCompleteSet?: (setId: string, result: SetChecklistResult) => boolean | void;
+  onUncompleteSet?: (setId: string) => void;
   onSkipSet?: (setId: string) => void;
   onSaveSet?: (setId: string, result: SetChecklistResult) => void | Promise<void>;
 }
@@ -55,14 +56,16 @@ function getPreferredSetId(exercise: ChecklistExercise | undefined) {
   return exercise.sets.find((set) => getSetStatus(set) === "Pending")?.id ?? exercise.sets[0]?.id ?? null;
 }
 
-export function WorkoutChecklist({ exercises, prior, priorSelection, readOnly = false, disabled = false, onSelectionChange, onCompleteSet, onSkipSet, onSaveSet }: WorkoutChecklistProps) {
+export function WorkoutChecklist({ exercises, prior, priorSelection, readOnly = false, disabled = false, onSelectionChange, onCompleteSet, onUncompleteSet, onSkipSet, onSaveSet }: WorkoutChecklistProps) {
   const rows = exercises.flatMap((exercise) => exercise.sets.map((set) => ({ exercise, set })));
-  // The first pending set in input order is the only set that can be completed.
+  // Input order still defines the current set and rest flow, while any pending
+  // row can be completed directly from its checkbox.
   const current = rows.find(({ set }) => getSetStatus(set) === "Pending");
   const currentId = current?.set.id;
   const initialSelection = current ?? rows.find(({ exercise }) => exercise.id === exercises[0]?.id);
   const [selectedExerciseId, setSelectedExerciseId] = useState<string | null>(() => initialSelection?.exercise.id ?? null);
   const [selectedSetId, setSelectedSetId] = useState<string | null>(() => initialSelection?.set.id ?? null);
+  const [focusSetId, setFocusSetId] = useState<string | null>(null);
   const completionRef = useRef(new Map(exercises.map((exercise) => [exercise.id, isExerciseComplete(exercise)])));
 
   const selectedExercise = exercises.find((exercise) => exercise.id === selectedExerciseId) ?? exercises[0];
@@ -105,6 +108,23 @@ export function WorkoutChecklist({ exercises, prior, priorSelection, readOnly = 
   }).length;
   const currentSet = selectedSets.find((set) => getSetStatus(set) === "Pending") ?? selectedSets[selectedSets.length - 1];
 
+  const selectRow = (exerciseId: string, setId: string, focusInput = false) => {
+    setSelectedExerciseId(exerciseId);
+    setSelectedSetId(setId);
+    setFocusSetId(focusInput ? setId : null);
+  };
+
+  const completeAndAdvance = (setId: string, result: SetChecklistResult) => {
+    if (onCompleteSet?.(setId, result) === false) return false;
+    const index = rows.findIndex(({ set }) => set.id === setId);
+    const remainingRows = index < 0 ? rows : [...rows.slice(index + 1), ...rows.slice(0, index)];
+    const next = remainingRows.find(({ set }) => getSetStatus(set) === "Pending" && set.id !== setId);
+
+    if (next) selectRow(next.exercise.id, next.set.id, true);
+    else setFocusSetId(null);
+    return true;
+  };
+
   return <div className="flex flex-col gap-4" data-testid="workout-checklist">
     <div
       className="grid w-full gap-2"
@@ -127,8 +147,8 @@ export function WorkoutChecklist({ exercises, prior, priorSelection, readOnly = 
             aria-label={`${exercise.exerciseName}${complete ? " (complete)" : ""}`}
             title={exercise.exerciseName}
             onClick={() => {
-              setSelectedExerciseId(exercise.id);
-              setSelectedSetId(getPreferredSetId(exercise));
+              const setId = getPreferredSetId(exercise);
+              if (setId) selectRow(exercise.id, setId);
             }}
             className="relative aspect-square h-auto w-full min-w-0 flex-col overflow-hidden rounded-lg p-2 text-center"
           >
@@ -175,8 +195,14 @@ export function WorkoutChecklist({ exercises, prior, priorSelection, readOnly = 
             repsMax={selectedExercise.repsMax}
             targetSeconds={selectedExercise.targetSeconds}
             selected={set.id === selectedSetId}
-            onSelect={() => setSelectedSetId(set.id)}
-            onComplete={onCompleteSet ? () => onCompleteSet(set.id) : undefined}
+            focusInput={set.id === focusSetId}
+            onFocusHandled={() => setFocusSetId((focusedSetId) => focusedSetId === set.id ? null : focusedSetId)}
+            onSelect={() => selectRow(selectedExercise.id, set.id)}
+            onComplete={onCompleteSet ? (result) => completeAndAdvance(set.id, result) : undefined}
+            onUncomplete={onUncompleteSet ? () => {
+              onUncompleteSet(set.id);
+              selectRow(selectedExercise.id, set.id, true);
+            } : undefined}
             onSkip={onSkipSet ? () => onSkipSet(set.id) : undefined}
             onSave={onSaveSet ? (result) => onSaveSet(set.id, result) : undefined}
           />;

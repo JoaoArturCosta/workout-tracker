@@ -24,6 +24,23 @@ describe("applyOptimisticWorkoutCommand", () => {
     expect(next.data.occurrences[0].sets[0]).toMatchObject({ status: "Completed", externalLoadKg: 20, actualReps: 8 });
   });
 
+  it("applies the final result when finishing", () => {
+    const snapshot = base();
+    snapshot.data.occurrences[0].sets[0] = { ...snapshot.data.occurrences[0].sets[0], status: "Completed", completedAt: new Date("2026-07-27T11:00:00.000Z"), actualReps: 8 };
+    const next = applyOptimisticWorkoutCommand(snapshot, { type: "Finish", sessionSetId: "00000000-0000-0000-0000-000000000004", result: { mode: "Reps", externalLoadKg: 25, actualReps: 10, actualSeconds: null, rpe: 9 } });
+
+    expect(next.status).toBe("Completed");
+    expect(next.data.occurrences[0].sets[1]).toMatchObject({ status: "Completed", externalLoadKg: 25, actualReps: 10, rpe: 9 });
+  });
+
+  it("clears a completed result when undoing it", () => {
+    const snapshot = base();
+    snapshot.data.occurrences[0].sets[0] = { ...snapshot.data.occurrences[0].sets[0], status: "Completed", completedAt: new Date("2026-07-27T11:00:00.000Z"), externalLoadKg: 20, actualReps: 8, rpe: 8 };
+    const next = applyOptimisticWorkoutCommand(snapshot, { type: "Undo", sessionSetId: "00000000-0000-0000-0000-000000000003" });
+
+    expect(next.data.occurrences[0].sets[0]).toMatchObject({ status: "Pending", completedAt: null, externalLoadKg: 0, actualReps: null, actualSeconds: null, rpe: null });
+  });
+
   it.each(["Pending", "Skipped", "Completed"] as const)(
     "saves a %s set optimistically",
     (status) => {

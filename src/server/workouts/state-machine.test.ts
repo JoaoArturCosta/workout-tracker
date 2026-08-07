@@ -185,24 +185,17 @@ describe("workout state machine", () => {
     expect(getCurrentSet(next)?.id).toBe("set-1");
   });
 
-  it("undoes only the latest completed set", () => {
+  it("undoes any completed set", () => {
     const next = applyWorkoutTransition(
       activeWorkout(["Completed", "Completed", "Pending"]),
-      { type: "UndoCompletion", setId: "set-2" }
+      { type: "UndoCompletion", setId: "set-1" }
     );
 
     expect(next.sets.map((set) => set.status)).toEqual([
+      "Pending",
       "Completed",
       "Pending",
-      "Pending",
     ]);
-
-    expect(() =>
-      applyWorkoutTransition(
-        activeWorkout(["Completed", "Completed", "Pending"]),
-        { type: "UndoCompletion", setId: "set-1" }
-      )
-    ).toThrowError(expect.objectContaining({ code: "NOT_LATEST_COMPLETION" }));
   });
 
   it("ends early as Partial and skips every remaining pending set", () => {
