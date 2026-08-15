@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { findCurrentSet } from "@/lib/workouts/current-set";
 import { Check } from "lucide-react";
 import { SetChecklistRow, type ChecklistSetStatus, type SetChecklistResult } from "@/components/sessions/set-checklist-row";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,7 @@ export interface ChecklistExercise {
     id: string;
     setNumber: number;
     status?: ChecklistSetStatus;
+    completedAt?: Date | string | null;
     completed?: boolean;
     skipped?: boolean;
     actualReps?: number | null;
@@ -58,10 +60,10 @@ function getPreferredSetId(exercise: ChecklistExercise | undefined) {
 
 export function WorkoutChecklist({ exercises, prior, priorSelection, readOnly = false, disabled = false, onSelectionChange, onCompleteSet, onUncompleteSet, onSkipSet, onSaveSet }: WorkoutChecklistProps) {
   const rows = exercises.flatMap((exercise) => exercise.sets.map((set) => ({ exercise, set })));
-  // Input order still defines the current set and rest flow, while any pending
-  // row can be completed directly from its checkbox.
-  const current = rows.find(({ set }) => getSetStatus(set) === "Pending");
-  const currentId = current?.set.id;
+  // Any pending row can be completed directly; the Current set follows the
+  // most recently completed exercise occurrence.
+  const currentId = findCurrentSet(rows.map(({ exercise, set }) => ({ id: set.id, exerciseOccurrenceId: exercise.id, status: getSetStatus(set), completedAt: set.completedAt })))?.id;
+  const current = rows.find(({ set }) => set.id === currentId);
   const initialSelection = current ?? rows.find(({ exercise }) => exercise.id === exercises[0]?.id);
   const [selectedExerciseId, setSelectedExerciseId] = useState<string | null>(() => initialSelection?.exercise.id ?? null);
   const [selectedSetId, setSelectedSetId] = useState<string | null>(() => initialSelection?.set.id ?? null);
@@ -116,9 +118,13 @@ export function WorkoutChecklist({ exercises, prior, priorSelection, readOnly = 
 
   const completeAndAdvance = (setId: string, result: SetChecklistResult) => {
     if (onCompleteSet?.(setId, result) === false) return false;
+    const completed = rows.find(({ set }) => set.id === setId);
+    // Advance within the completed set's exercise first so focus follows the
+    // exercise the athlete is working on; otherwise continue in sequence.
+    const sameExercise = completed ? rows.find(({ exercise, set }) => exercise.id === completed.exercise.id && set.id !== setId && getSetStatus(set) === "Pending") : undefined;
     const index = rows.findIndex(({ set }) => set.id === setId);
     const remainingRows = index < 0 ? rows : [...rows.slice(index + 1), ...rows.slice(0, index)];
-    const next = remainingRows.find(({ set }) => getSetStatus(set) === "Pending" && set.id !== setId);
+    const next = sameExercise ?? remainingRows.find(({ set }) => getSetStatus(set) === "Pending" && set.id !== setId);
 
     if (next) selectRow(next.exercise.id, next.set.id, true);
     else setFocusSetId(null);

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { signIn, useSession } from "next-auth/react";
 import { api } from "@/lib/trpc";
 import type { SessionWithExercises } from "@/lib/types";
+import { findCurrentSet, findLatestCompletedSet } from "@/lib/workouts/current-set";
 import type { SetResult } from "@/lib/workouts/contracts";
 import { getDeviceId } from "@/lib/offline-workouts/db";
 import { applyOptimisticWorkoutCommand } from "@/lib/offline-workouts/optimistic";
@@ -66,9 +67,11 @@ export default function SessionPage({ params }: SessionPageProps) {
   const workout = serverEnded ? session : active.snapshot?.data ?? session;
   const status = serverEnded ? session?.status : active.snapshot?.status ?? workout?.status;
   const readOnly = active.isReadOnly || status !== "Active" || !controllerQuery.data || controllerQuery.data.controllerState === "ReadOnly";
-  const exercises = useMemo<ChecklistExercise[]>(() => workout?.occurrences.map((occurrence) => ({ id: occurrence.id, exerciseName: occurrence.exerciseName, mode: occurrence.mode, repsMin: occurrence.repsMin, repsMax: occurrence.repsMax, targetSeconds: occurrence.targetSeconds, sets: occurrence.sets.map((set) => ({ id: set.id, setNumber: set.setNumber, status: set.status, actualReps: set.actualReps, actualSeconds: set.actualSeconds, externalLoadKg: set.externalLoadKg, rpe: set.rpe })) })) ?? [], [workout]);
+  const exercises = useMemo<ChecklistExercise[]>(() => workout?.occurrences.map((occurrence) => ({ id: occurrence.id, exerciseName: occurrence.exerciseName, mode: occurrence.mode, repsMin: occurrence.repsMin, repsMax: occurrence.repsMax, targetSeconds: occurrence.targetSeconds, sets: occurrence.sets.map((set) => ({ id: set.id, setNumber: set.setNumber, status: set.status, completedAt: set.completedAt, actualReps: set.actualReps, actualSeconds: set.actualSeconds, externalLoadKg: set.externalLoadKg, rpe: set.rpe })) })) ?? [], [workout]);
   const flatSets = useMemo(() => exercises.flatMap((exercise) => exercise.sets.map((set) => ({ exercise, set }))), [exercises]);
-  const current = flatSets.find(({ set }) => set.status === "Pending");
+  const currentCandidates = flatSets.map(({ exercise, set }) => ({ id: set.id, exerciseOccurrenceId: exercise.id, status: set.status ?? "Pending", completedAt: set.completedAt }));
+  const current = flatSets.find(({ set }) => set.id === findCurrentSet(currentCandidates)?.id);
+  const latestCompletedSetId = findLatestCompletedSet(currentCandidates)?.id;
   const canSkipCurrent = flatSets.filter(({ set }) => set.status === "Pending").length > 1;
   const [selectedSelection, setSelectedSelection] = useState<ChecklistSelection | null>(null);
   const handleChecklistSelection = useCallback((selection: ChecklistSelection) => {
@@ -125,8 +128,7 @@ export default function SessionPage({ params }: SessionPageProps) {
   return <main className="container mx-auto max-w-3xl space-y-5 p-4 sm:p-6">
     {ended && <Button variant="ghost" size="sm" asChild className="-ml-3 w-fit"><Link href="/progress"><ArrowLeft />Back to history</Link></Button>}
     <WorkoutHeader name={workout.templateName} status={status ?? workout.status} completedSets={completedSets} totalSets={allSets} startedAt={String(workout.startTime)} />
-    {!ended && <SyncStatus state={active.syncState} pendingCount={active.outbox.length} errorMessage={active.error?.message} />}
-    {!ended && <WorkoutActions onDeviceControl={deviceId ? () => setControllerOpen(true) : undefined} canUndo={!readOnly && completedSets > 0} onUndo={readOnly ? undefined : () => { const last = [...flatSets].reverse().find(({ set }) => set.status === "Completed"); if (last) void active.undoSet({ type: "Undo", sessionSetId: last.set.id }); }} onEnd={readOnly ? undefined : () => void active.end()} onDiscard={readOnly ? undefined : () => void active.discard()} />}
+    {!ended && <WorkoutActions onDeviceControl={deviceId ? () => setControllerOpen(true) : undefined} canUndo={!readOnly && completedSets > 0} onUndo={readOnly ? undefined : () => { if (latestCompletedSetId) void active.undoSet({ type: "Undo", sessionSetId: latestCompletedSetId }); }} onEnd={readOnly ? undefined : () => void active.end()} onDiscard={readOnly ? undefined : () => void active.discard()} />}
     {!ended && deviceId && <ControllerControls open={controllerOpen} onOpenChange={setControllerOpen} hideTrigger controllerState={controllerQuery.data?.controllerState ?? "ReadOnly"} controllerDeviceId={controllerQuery.data?.controllerDeviceId ?? workout.controllerDeviceId} controllerEpoch={controllerQuery.data?.controllerEpoch ?? workout.controllerEpoch} acknowledgedRevision={controllerQuery.data?.revision ?? workout.revision} pendingOperationCount={active.outbox.length} disabled={handoffMutation.isPending || replaceMutation.isPending} onHandoff={(nextDeviceId) => handoffMutation.mutate({ sessionId, currentDeviceId: deviceId, nextDeviceId, controllerEpoch: controllerQuery.data?.controllerEpoch ?? workout.controllerEpoch, acknowledgedRevision: controllerQuery.data?.revision ?? workout.revision, pendingOperationCount: active.outbox.length })} onReplaceLostDevice={() => { if (window.confirm("Replace the lost controller? Unsynced changes may be lost.")) replaceMutation.mutate({ sessionId, nextDeviceId: deviceId, controllerEpoch: controllerQuery.data?.controllerEpoch ?? workout.controllerEpoch, confirmUnsyncedDataLoss: true }); }} />}
     {rest && !readOnly && <RestTimer startedAt={rest.startedAt} dueAt={rest.dueAt} onSkip={() => void active.queueCommand({ type: "SkipRest" })} />}
     <Card><CardHeader><CardTitle>Exercises</CardTitle></CardHeader><CardContent><WorkoutChecklist exercises={exercises} prior={priorQuery.data} priorSelection={selected ? { exerciseId: selected.exercise.id, setId: selected.set.id } : null} readOnly={readOnly} onSelectionChange={handleChecklistSelection} onCompleteSet={completeChecklistSet} onUncompleteSet={uncompleteChecklistSet} onSkipSet={!readOnly && canSkipCurrent ? (setId) => void active.skipSet({ type: "SkipSet", sessionSetId: setId }) : undefined} onSaveSet={saveChecklistSet} /></CardContent></Card>

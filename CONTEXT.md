@@ -45,7 +45,7 @@ The fixed order of sets in an active workout, sorted first by Exercise occurrenc
 _Avoid_: Queue, workout order
 
 **Current set**:
-The one set in the set sequence that the athlete is performing or preparing to perform.
+The one set in the set sequence that the athlete is performing or preparing to perform. Before any completion it is the first pending set in the set sequence. After any completion it is the first pending set of the exercise occurrence completed most recently; when that exercise has no pending set left, it falls back to the first pending set in the set sequence.
 _Avoid_: Active set, selected set
 
 **Skipped set**:
@@ -75,7 +75,7 @@ Weight added to an exercise beyond the athlete's body weight. It must be zero or
 _Avoid_: Weight, body weight
 
 **Rest period**:
-The planned time between a newly completed set and the next set in the set sequence. A workout has no rest period after its final set.
+The planned time between a newly completed set and the Current set that follows it. A workout has no rest period after its final set.
 _Avoid_: Break, rest timer
 
 **Rest-finished alert**:

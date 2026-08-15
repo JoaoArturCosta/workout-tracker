@@ -7,6 +7,7 @@ import type {
   WorkoutCommandHooks,
   WorkoutCommandTransaction,
 } from "@/server/workouts/command-service";
+import { getCurrentSet } from "@/server/workouts/state-machine";
 import type {
   ControllerHooks,
 } from "@/server/workouts/controller-service";
@@ -43,21 +44,15 @@ export function createRestAlertCommandHooks(
 ): WorkoutCommandHooks {
   return {
     async afterTransition(tx, context) {
-      if (
-        context.command.type === "EditCompletedSet" ||
-        context.command.type === "SaveSet"
-      ) {
+      if (context.command.type === "EditCompletedSet") {
         return undefined;
       }
 
       await tx.cancelScheduledRest(context.after.id, context.now);
-      if (context.command.type !== "CompleteSet") {
+      if (context.command.type !== "CompleteSet" && context.command.type !== "SaveSet") {
         return undefined;
       }
-
-      const currentSet = context.after.sets.find(
-        (set) => set.status === "Pending"
-      );
+      const currentSet = getCurrentSet({ status: context.after.status, sets: context.after.sets });
       if (!currentSet) {
         return undefined;
       }

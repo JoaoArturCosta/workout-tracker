@@ -103,6 +103,17 @@ describe("WorkoutChecklist", () => {
     expect(screen.getByRole("checkbox", { name: "Complete Row set 1" })).toBeDisabled();
   });
 
+  it("moves Current to the exercise completed most recently", () => {
+    // Squat set 1 done earlier; Row set 1 completed out of order later —
+    // Current follows Row's remaining set instead of global order.
+    const squat = { ...exercise("squat", "Squat", ["Completed", "Pending"]), sets: exercise("squat", "Squat", ["Completed", "Pending"]).sets.map((set, index) => ({ ...set, completedAt: set.status === "Completed" ? new Date("2026-08-15T10:00:00.000Z").toISOString() : null, setNumber: index + 1 })) };
+    const row = { ...exercise("row", "Row", ["Completed", "Pending"]), sets: exercise("row", "Row", ["Completed", "Pending"]).sets.map((set, index) => ({ ...set, completedAt: set.status === "Completed" ? new Date("2026-08-15T10:05:00.000Z").toISOString() : null, setNumber: index + 1 })) };
+    render(<WorkoutChecklist exercises={[squat, row]} />);
+
+    expect(screen.getByRole("button", { name: "Row" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("Current")).toBeInTheDocument();
+  });
+
   it("passes skip set actions from the row menu to the parent", async () => {
     const user = userEvent.setup();
     const onSkipSet = vi.fn();

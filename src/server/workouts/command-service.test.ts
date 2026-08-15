@@ -22,6 +22,7 @@ const workout = (): CommandWorkout => ({
   sets: [
     {
       id: "set-1",
+      exerciseOccurrenceId: "occ-1",
       mode: "Reps",
       status: "Pending",
       completedAt: null,
@@ -29,6 +30,7 @@ const workout = (): CommandWorkout => ({
     },
     {
       id: "set-2",
+      exerciseOccurrenceId: "occ-1",
       mode: "Reps",
       status: "Pending",
       completedAt: null,
@@ -107,6 +109,7 @@ describe("executeWorkoutCommand", () => {
     expect(response.result.revision).toBe(1);
     expect(response.result.sets[0]).toEqual({
       id: "set-1",
+      exerciseOccurrenceId: "occ-1",
       mode: "Reps",
       status: "Completed",
       completedAt: new Date("2026-07-27T12:00:00.000Z"),
@@ -200,6 +203,7 @@ describe("executeWorkoutCommand", () => {
     const current = workout();
     current.sets[0] = {
       id: "set-1",
+      exerciseOccurrenceId: "occ-1",
       mode: "Reps",
       status: "Completed",
       completedAt: new Date("2026-07-27T11:00:00.000Z"),
@@ -228,6 +232,7 @@ describe("executeWorkoutCommand", () => {
 
     expect(response.result.sets[0]).toEqual({
       id: "set-1",
+      exerciseOccurrenceId: "occ-1",
       mode: "Reps",
       status: "Completed",
       completedAt: new Date("2026-07-27T11:00:00.000Z"),
@@ -267,6 +272,7 @@ describe("executeWorkoutCommand", () => {
     expect(response.result.sets[0].status).toBe("Pending");
     expect(response.result.sets[1]).toEqual({
       id: "set-2",
+      exerciseOccurrenceId: "occ-1",
       mode: "Reps",
       status: "Completed",
       completedAt: new Date("2026-07-27T12:00:00.000Z"),
@@ -311,6 +317,7 @@ describe("executeWorkoutCommand", () => {
 
       expect(response.result.sets[1]).toEqual({
         id: "set-2",
+        exerciseOccurrenceId: "occ-1",
         mode: "Reps",
         status: "Completed",
         completedAt:

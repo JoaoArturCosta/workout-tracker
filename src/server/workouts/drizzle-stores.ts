@@ -128,6 +128,7 @@ export const createDrizzleWorkoutCommandStore = (
 
           const sets: CommandSet[] = setRows.map(({ set }) => ({
             id: set.id,
+            exerciseOccurrenceId: set.sessionExerciseId,
             mode: set.mode,
             status: set.status,
             completedAt: set.completedAt,

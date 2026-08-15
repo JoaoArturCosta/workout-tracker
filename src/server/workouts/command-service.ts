@@ -16,6 +16,8 @@ export type CommandSetResult = SetResult;
 
 export type CommandSet = {
   id: string;
+  /** Exercise occurrence id: sets of one exercise share a group. */
+  exerciseOccurrenceId: string;
   mode: WorkoutMode;
   status: SetStatus;
   completedAt: Date | null;
@@ -122,8 +124,9 @@ export class WorkoutCommandError extends Error {
 
 const toState = (workout: CommandWorkout): WorkoutState => ({
   status: workout.status,
-  sets: workout.sets.map(({ id, status, completedAt }) => ({
+  sets: workout.sets.map(({ id, exerciseOccurrenceId, status, completedAt }) => ({
     id,
+    exerciseOccurrenceId,
     status,
     completedAt,
   })),

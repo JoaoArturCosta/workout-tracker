@@ -1,8 +1,12 @@
+import { findCurrentSet } from "@/lib/workouts/current-set";
+
 export type WorkoutStatus = "Active" | "Completed" | "Partial" | "Discarded";
 export type SetStatus = "Pending" | "Completed" | "Skipped";
 
 export type WorkoutStateSet = {
   id: string;
+  /** Exercise occurrence id: sets of one exercise share a group. */
+  exerciseOccurrenceId: string;
   status: SetStatus;
   completedAt: Date | null;
 };
@@ -45,7 +49,7 @@ export class WorkoutTransitionError extends Error {
 export const getCurrentSet = (
   workout: WorkoutState
 ): WorkoutStateSet | undefined =>
-  workout.sets.find((set) => set.status === "Pending");
+  findCurrentSet(workout.sets);
 
 const requireActive = (workout: WorkoutState) => {
   if (workout.status !== "Active") {

@@ -8,11 +8,13 @@ import {
 } from "./state-machine";
 
 const activeWorkout = (
-  statuses: Array<"Pending" | "Completed" | "Skipped">
+  statuses: Array<"Pending" | "Completed" | "Skipped">,
+  groups: string[] = ["occ-1"]
 ): WorkoutState => ({
   status: "Active",
   sets: statuses.map((status, index) => ({
     id: `set-${index + 1}`,
+    exerciseOccurrenceId: groups[index % groups.length],
     status,
     completedAt:
       status === "Completed"
@@ -64,6 +66,29 @@ describe("workout state machine", () => {
     expect(getCurrentSet(next)?.id).toBe("set-1");
   });
 
+  it("moves Current to the exercised exercise after an out-of-order save", () => {
+    const workout = activeWorkout(
+      ["Pending", "Pending", "Pending", "Pending", "Pending"],
+      ["occ-a", "occ-b", "occ-b", "occ-b", "occ-c"]
+    );
+    const saved = applyWorkoutTransition(workout, {
+      type: "SaveSet",
+      setId: "set-4",
+      completedAt: new Date("2026-07-27T11:00:00.000Z"),
+    });
+
+    expect(getCurrentSet(saved)?.id).toBe("set-2");
+
+    // set-2 is now Current, so it completes through the normal path.
+    const finishedB = applyWorkoutTransition(saved, {
+      type: "CompleteCurrent",
+      setId: "set-2",
+      completedAt: new Date("2026-07-27T11:05:00.000Z"),
+    });
+
+    expect(getCurrentSet(finishedB)?.id).toBe("set-3");
+  });
+
   it("saves a skipped set as completed", () => {
     const next = applyWorkoutTransition(
       activeWorkout(["Pending", "Skipped"]),
@@ -76,6 +101,7 @@ describe("workout state machine", () => {
 
     expect(next.sets[1]).toEqual({
       id: "set-2",
+      exerciseOccurrenceId: "occ-1",
       status: "Completed",
       completedAt: new Date("2026-07-27T11:00:00.000Z"),
     });

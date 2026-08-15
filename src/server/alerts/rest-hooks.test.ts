@@ -23,6 +23,7 @@ const before: CommandWorkout = {
   sets: [
     {
       id: "set-1",
+      exerciseOccurrenceId: "occ-1",
       mode: "Reps",
       status: "Pending",
       completedAt: null,
@@ -30,6 +31,7 @@ const before: CommandWorkout = {
     },
     {
       id: "set-2",
+      exerciseOccurrenceId: "occ-2",
       mode: "Reps",
       status: "Pending",
       completedAt: null,
@@ -93,6 +95,7 @@ describe("rest alert workout hooks", () => {
         sets: [
           {
             id: command.sessionSetId,
+            exerciseOccurrenceId: "occ-1",
             mode: "Reps",
             status: "Completed",
             completedAt: new Date("2026-07-27T12:00:00Z"),
@@ -134,7 +137,77 @@ describe("rest alert workout hooks", () => {
     expect(tx.cancelScheduledRest).toHaveBeenCalledOnce();
   });
 
-  it("does not change rest when saving an out-of-order or completed set", async () => {
+  it("replaces rest after an out-of-order SaveSet and targets the saved exercise's next set", async () => {
+    const tx = {
+      cancelScheduledRest: vi.fn().mockResolvedValue(undefined),
+      scheduleRest: vi.fn().mockResolvedValue({
+        restId: "df4d3631-a503-457d-88b1-08ec772ebf30",
+        token: "8f75a333-d22e-41f0-afb5-00f2069cbe24",
+        dueAt: new Date("2026-07-27T12:02:00Z"),
+      }),
+    } as unknown as AlertWorkoutTransaction;
+    const publish = vi.fn().mockResolvedValue({ messageId: "msg-1" });
+    const recordMessageId = vi.fn().mockResolvedValue(undefined);
+    const hooks = createRestAlertCommandHooks({ publish, recordMessageId });
+    // set-2 (occ-2) was saved out of order; set-1 stays pending. The
+    // completion moved Current to occ-2, whose only set is completed, so
+    // Current falls back to set-1 and rest targets it.
+    const command = {
+      type: "SaveSet" as const,
+      sessionSetId: "set-2",
+      result: {
+        mode: "Reps" as const,
+        actualReps: 10,
+        actualSeconds: null,
+        externalLoadKg: 20,
+        rpe: null,
+      },
+    };
+
+    const effect = await hooks.afterTransition?.(
+      tx,
+      context(command, {
+        ...before,
+        sets: [
+          before.sets[0],
+          {
+            id: "set-2",
+            exerciseOccurrenceId: "occ-2",
+            mode: "Reps",
+            status: "Completed",
+            completedAt: new Date("2026-07-27T12:00:00Z"),
+            result: command.result,
+          },
+        ],
+      })
+    );
+
+    expect(tx.cancelScheduledRest).toHaveBeenCalledOnce();
+    expect(tx.scheduleRest).toHaveBeenCalledWith({
+      sessionId: before.id,
+      completedSetId: "set-2",
+      currentSetId: "set-1",
+      controllerEpoch: before.controllerEpoch,
+      now: new Date("2026-07-27T12:00:00Z"),
+    });
+    expect(effect).toEqual({
+      restId: "df4d3631-a503-457d-88b1-08ec772ebf30",
+      token: "8f75a333-d22e-41f0-afb5-00f2069cbe24",
+      dueAt: "2026-07-27T12:02:00.000Z",
+    });
+    expect(publish).not.toHaveBeenCalled();
+
+    await hooks.afterCommit?.(effect);
+
+    expect(publish).toHaveBeenCalledWith({
+      restId: "df4d3631-a503-457d-88b1-08ec772ebf30",
+      token: "8f75a333-d22e-41f0-afb5-00f2069cbe24",
+      dueAt: new Date("2026-07-27T12:02:00Z"),
+    });
+    expect(recordMessageId).toHaveBeenCalledOnce();
+  });
+
+  it("does not change rest when editing a completed set", async () => {
     const tx = {
       cancelScheduledRest: vi.fn().mockResolvedValue(undefined),
       scheduleRest: vi.fn().mockResolvedValue(null),
@@ -147,7 +220,7 @@ describe("rest alert workout hooks", () => {
     await hooks.afterTransition?.(
       tx,
       context({
-        type: "SaveSet",
+        type: "EditCompletedSet",
         sessionSetId: "773e938e-1bb8-4f06-b222-d77eda3dc42f",
         result: {
           mode: "Reps",
