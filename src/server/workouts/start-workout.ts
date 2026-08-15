@@ -3,12 +3,14 @@ import { and, asc, eq } from "drizzle-orm";
 import type { Database } from "@/lib/db";
 import {
   exercises,
+  restPeriods,
   sessionExercises,
   sessionSets,
   templateExercises,
   workoutDevices,
   workoutSessions,
   workoutTemplates,
+  type WorkoutSession,
 } from "@/lib/db/schema";
 import { getWorkoutSnapshot } from "./queries";
 
@@ -28,6 +30,26 @@ export class StartWorkoutError extends Error {
     this.name = "StartWorkoutError";
   }
 }
+
+/** Close a stale server session when the user explicitly starts a replacement. */
+export const autoCompleteActiveWorkout = ({
+  startTime,
+  revision,
+  controllerEpoch,
+  now,
+}: Pick<WorkoutSession, "startTime" | "revision" | "controllerEpoch"> & {
+  now: Date;
+}) => ({
+  status: "Completed" as const,
+  completed: true,
+  endTime: now,
+  durationMinutes: Math.max(
+    0,
+    Math.round((now.getTime() - startTime.getTime()) / 60_000)
+  ),
+  revision: revision + 1,
+  controllerEpoch: controllerEpoch + 1,
+});
 
 const isUniqueViolation = (error: unknown) =>
   typeof error === "object" &&
@@ -91,6 +113,51 @@ export const startWorkout = async ({
           "EMPTY_TEMPLATE",
           "Add at least one Exercise occurrence before starting"
         );
+      }
+
+      const [activeWorkout] = await tx
+        .select({
+          id: workoutSessions.id,
+          startTime: workoutSessions.startTime,
+          revision: workoutSessions.revision,
+          controllerEpoch: workoutSessions.controllerEpoch,
+        })
+        .from(workoutSessions)
+        .where(
+          and(
+            eq(workoutSessions.userId, userId),
+            eq(workoutSessions.status, "Active")
+          )
+        )
+        .for("update", { of: workoutSessions })
+        .limit(1);
+
+      if (activeWorkout) {
+        const completion = autoCompleteActiveWorkout({
+          startTime: activeWorkout.startTime,
+          revision: activeWorkout.revision,
+          controllerEpoch: activeWorkout.controllerEpoch,
+          now,
+        });
+
+        await tx
+          .update(workoutSessions)
+          .set(completion)
+          .where(eq(workoutSessions.id, activeWorkout.id));
+
+        await tx
+          .update(restPeriods)
+          .set({
+            status: "Cancelled",
+            cancelledAt: now,
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(restPeriods.sessionId, activeWorkout.id),
+              eq(restPeriods.status, "Scheduled")
+            )
+          );
       }
 
       const [device] = await tx
@@ -177,7 +244,7 @@ export const startWorkout = async ({
     if (isUniqueViolation(error)) {
       throw new StartWorkoutError(
         "ACTIVE_WORKOUT_EXISTS",
-        "End the active workout before starting another"
+        "Another workout started first; try again"
       );
     }
     throw error;
