@@ -1,0 +1,3 @@
+# Freeze the workout plan at workout start
+
+Each workout will store every Exercise occurrence as its own canonical frozen row when it starts. The row will have its own workout-occurrence ID and copy the exercise ID, display label, order, set count, Reps or Duration mode, rep range or fixed duration target, RPE target, and rest duration. A template will enforce one occurrence per exercise and mode in v1. Sets and Rest periods will reference the frozen occurrence. Active workouts, alerts, and history will not rejoin mutable template rows; a template-occurrence ID may remain only as provenance. Template edits will affect only future workouts, which keeps active workouts and history stable at the cost of storing a full plan for each workout.

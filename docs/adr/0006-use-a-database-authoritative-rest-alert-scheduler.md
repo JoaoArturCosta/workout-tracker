@@ -1,0 +1,3 @@
+# Use a database-authoritative rest-alert scheduler
+
+Each Rest period will create or replace one authoritative database record with its due time, state, and unique token, plus a durable one-shot job that calls a signed, idempotent app endpoint at its deadline. The job is only a trigger: the endpoint will re-read the record and send Web Push only when the Active workout, Rest period, token, due state, and Controlling device epoch are still current. Undo, Skip Set, a new set completion, Finish, and End Workout will invalidate the record in the same database transaction. Late and duplicate triggers will do nothing. In-memory Next.js timers and database polling are rejected because the app has no always-on worker and alerts must survive deploys and restarts.

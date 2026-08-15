@@ -1,0 +1,3 @@
+# Use one controlling device per active workout
+
+Each active workout will have one Controlling device that can log sets, control rest, and schedule alerts; other devices remain read-only. A normal online handoff can transfer control only after pending changes sync. If the controller is lost or its site data is cleared, Replace lost device will allow an online recovery after a clear warning that unsynced work cannot be recovered. The server will keep its last acknowledged workout state, invalidate rest and alerts, increment the controller epoch, and assign the new device. It will reject later writes from the old device and never merge its outbox. This avoids a permanently locked workout while preventing silent conflicts and duplicate alerts.
