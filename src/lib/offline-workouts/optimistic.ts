@@ -1,3 +1,4 @@
+import { findCurrentSet } from "@/lib/workouts/current-set";
 import type { SetStatus, WorkoutCommand } from "@/lib/workouts/contracts";
 import type { OfflineWorkoutSnapshot } from "./models";
 
@@ -12,9 +13,26 @@ type OptimisticSet = {
   rpe: number | null;
 };
 
+type OptimisticRest = {
+  currentSetId: string | null;
+  startedAt: Date | string;
+  dueAt: Date | string;
+} | null;
+
 type OptimisticWorkout = {
   status: "Active" | "Completed" | "Partial" | "Discarded";
-  occurrences: Array<{ sets: OptimisticSet[] }>;
+  rest?: OptimisticRest;
+  occurrences: Array<{
+    id?: string;
+    restTimeSeconds?: number;
+    sets: OptimisticSet[];
+  }>;
+};
+
+/** Commands that complete a set and so may schedule a rest period. */
+const REST_SCHEDULING_COMMAND: Record<string, boolean> = {
+  CompleteSet: true,
+  SaveSet: true,
 };
 
 /** Apply one typed command to the local frozen snapshot before sync. */
@@ -44,6 +62,49 @@ export function applyOptimisticWorkoutCommand<TData extends OptimisticWorkout>(
     occurrence.sets.every((set) => set.status === "Completed")
   );
   const terminalStatus = command.type === "Finish" || (command.type === "SaveSet" && allSetsCompleted) ? "Completed" : command.type === "End" ? "Partial" : command.type === "Discard" ? "Discarded" : undefined;
-  const data = { ...snapshot.data, status: terminalStatus ?? snapshot.data.status, occurrences } as TData;
+  const rest = nextRest(snapshot.data, command, occurrences, updatedAt, terminalStatus ?? snapshot.data.status);
+  const data = { ...snapshot.data, status: terminalStatus ?? snapshot.data.status, rest, occurrences } as TData;
   return { ...snapshot, status: terminalStatus ?? snapshot.status, data, updatedAt };
+}
+
+/**
+ * Mirror the server's rest decision: a completing command schedules rest for
+ * the Current set that follows it; anything else that changes the workout
+ * cancels rest, and edits leave it alone.
+ */
+function nextRest(
+  data: OptimisticWorkout,
+  command: WorkoutCommand,
+  occurrences: OptimisticWorkout["occurrences"],
+  now: number,
+  status: OptimisticWorkout["status"],
+): OptimisticRest {
+  if (command.type === "EditCompletedSet") return data.rest ?? null;
+  if (!REST_SCHEDULING_COMMAND[command.type] || status !== "Active") {
+    return null;
+  }
+  const { sessionSetId } = command as { sessionSetId: string };
+
+  const completedOccurrence = occurrences.find((occurrence) =>
+    occurrence.sets.some((set) => set.id === sessionSetId)
+  );
+  const restTimeSeconds = completedOccurrence?.restTimeSeconds;
+  if (restTimeSeconds == null) return null;
+
+  const currentSet = findCurrentSet(
+    occurrences.flatMap((occurrence) =>
+      occurrence.sets.map((set) => ({
+        ...set,
+        exerciseOccurrenceId: occurrence.id ?? "",
+      }))
+    )
+  );
+  if (!currentSet) return null;
+
+  const startedAt = new Date(now);
+  return {
+    currentSetId: currentSet.id,
+    startedAt,
+    dueAt: new Date(now + restTimeSeconds * 1_000),
+  };
 }

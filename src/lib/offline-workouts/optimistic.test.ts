@@ -4,14 +4,15 @@ import type { OfflineWorkoutSnapshot } from "./models";
 
 const base = (): OfflineWorkoutSnapshot<{
   status: "Active" | "Completed" | "Partial" | "Discarded";
-  occurrences: Array<{ sets: Array<{ id: string; status: "Pending" | "Completed" | "Skipped"; mode: "Reps"; completedAt: Date | null; externalLoadKg: number; actualReps: number | null; actualSeconds: number | null; rpe: number | null }> }>;
+  rest: { currentSetId: string; startedAt: Date; dueAt: Date } | null;
+  occurrences: Array<{ id: string; restTimeSeconds: number; sets: Array<{ id: string; status: "Pending" | "Completed" | "Skipped"; mode: "Reps"; completedAt: Date | null; externalLoadKg: number; actualReps: number | null; actualSeconds: number | null; rpe: number | null }> }>;
 }> => ({
   sessionId: "00000000-0000-0000-0000-000000000001",
   revision: 1,
   controllerEpoch: 1,
   controllerDeviceId: "00000000-0000-0000-0000-000000000002",
   status: "Active",
-  data: { status: "Active", occurrences: [{ sets: [
+  data: { status: "Active", rest: null, occurrences: [{ id: "occ-1", restTimeSeconds: 90, sets: [
     { id: "00000000-0000-0000-0000-000000000003", status: "Pending", mode: "Reps", completedAt: null, externalLoadKg: 0, actualReps: null, actualSeconds: null, rpe: null },
     { id: "00000000-0000-0000-0000-000000000004", status: "Pending", mode: "Reps", completedAt: null, externalLoadKg: 0, actualReps: null, actualSeconds: null, rpe: null },
   ] }] },
@@ -133,5 +134,70 @@ describe("applyOptimisticWorkoutCommand", () => {
       "Skipped",
     ]);
     expect(next.data.occurrences[0].sets[1].completedAt).toBeNull();
+  });
+
+  it("starts an optimistic rest period after completing the current set", () => {
+    const next = applyOptimisticWorkoutCommand(base(), {
+      type: "CompleteSet",
+      sessionSetId: "00000000-0000-0000-0000-000000000003",
+      result: { mode: "Reps", externalLoadKg: 20, actualReps: 8, actualSeconds: null, rpe: null },
+    });
+
+    expect(next.data.rest).toMatchObject({
+      currentSetId: "00000000-0000-0000-0000-000000000004",
+    });
+    expect(next.data.rest?.startedAt).toBeInstanceOf(Date);
+    expect(next.data.rest?.dueAt.getTime()).toBeGreaterThan(
+      next.data.rest?.startedAt.getTime() ?? 0
+    );
+  });
+
+  it("starts an optimistic rest after an out-of-order save, targeting the saved exercise's next set", () => {
+    const snapshot = base();
+    snapshot.data.occurrences.push({
+      id: "occ-2",
+      restTimeSeconds: 120,
+      sets: [
+        { id: "00000000-0000-0000-0000-000000000005", status: "Pending", mode: "Reps", completedAt: null, externalLoadKg: 0, actualReps: null, actualSeconds: null, rpe: null },
+        { id: "00000000-0000-0000-0000-000000000006", status: "Pending", mode: "Reps", completedAt: null, externalLoadKg: 0, actualReps: null, actualSeconds: null, rpe: null },
+      ],
+    });
+
+    const next = applyOptimisticWorkoutCommand(snapshot, {
+      type: "SaveSet",
+      sessionSetId: "00000000-0000-0000-0000-000000000006",
+      result: { mode: "Reps", externalLoadKg: 20, actualReps: 8, actualSeconds: null, rpe: null },
+    });
+
+    // occ-2 just completed its set 2; Current becomes occ-2's remaining
+    // pending set 1, not the sequence's first pending set.
+    expect(next.data.rest).toMatchObject({
+      currentSetId: "00000000-0000-0000-0000-000000000005",
+    });
+  });
+
+  it("clears rest when finishing, ending, or discarding", () => {
+    for (const command of [
+      { type: "Finish", sessionSetId: "00000000-0000-0000-0000-000000000004", result: { mode: "Reps", externalLoadKg: 20, actualReps: 8, actualSeconds: null, rpe: null } },
+      { type: "End" },
+      { type: "Discard" },
+    ] as const) {
+      const snapshot = base();
+      snapshot.data.rest = { currentSetId: "00000000-0000-0000-0000-000000000004", startedAt: new Date(0), dueAt: new Date(60_000) };
+      const next = applyOptimisticWorkoutCommand(snapshot, command);
+      expect(next.data.rest).toBeNull();
+    }
+  });
+
+  it("clears rest when skipping or undoing, and keeps it when editing", () => {
+    const rest = { currentSetId: "00000000-0000-0000-0000-000000000004", startedAt: new Date(0), dueAt: new Date(60_000) };
+    const skip = applyOptimisticWorkoutCommand({ ...base(), data: { ...base().data, rest } }, { type: "SkipSet", sessionSetId: "00000000-0000-0000-0000-000000000003" });
+    expect(skip.data.rest).toBeNull();
+
+    const undo = applyOptimisticWorkoutCommand({ ...base(), data: { ...base().data, rest } }, { type: "Undo", sessionSetId: "00000000-0000-0000-0000-000000000003" });
+    expect(undo.data.rest).toBeNull();
+
+    const edit = applyOptimisticWorkoutCommand({ ...base(), data: { ...base().data, rest } }, { type: "EditCompletedSet", sessionSetId: "00000000-0000-0000-0000-000000000003", result: { mode: "Reps", externalLoadKg: 20, actualReps: 8, actualSeconds: null, rpe: null } });
+    expect(edit.data.rest).toBe(rest);
   });
 });
